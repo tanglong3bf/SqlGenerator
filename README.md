@@ -43,7 +43,7 @@ aux_source_directory(plugins/SqlGenerator/src SQL_SRC)
 target_sources(${PROJECT_NAME}
                PRIVATE
                # ...
-			   ${SQL_SRC})
+               ${SQL_SRC})
 ```
 
 **compile_flags.txt(Optional)**
