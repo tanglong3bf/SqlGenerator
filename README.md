@@ -38,7 +38,7 @@ git clone https://github.com/tanglong3bf/SqlGenerator.git
 
 ```cmake
 # ...
-aux_source_directory(plugins/SqlGenerator/src SQL_SRC)
+aux_source_directory(plugins/SqlGenerator SQL_SRC)
 # ...
 target_sources(${PROJECT_NAME}
                PRIVATE
@@ -69,7 +69,7 @@ plugins:
         get_user_by_name:
           main: SELECT * FROM user WHERE name LIKE @name_with_wildcard(raw_name=${name})
           name_with_wildcard: "'%${raw_name}%'"
-        # Param value can also be obtained from a sub-SQL statement
+        # Param can have a default value
         get_height_difference:
           main: SELECT @height_difference() FROM (@student_table()) s1, (@student_table(id = "2")) s2 # param value must be string
           height_difference: (s1.height - s2.height) as height_difference
@@ -89,7 +89,7 @@ plugins:
 
 ### Generating SQL Statements
 
-You can generate SQL statements using the `getSql` method of the `SqlGenerator` class. This method accepts the name of the SQL statement and an optional map of parameters.
+You can get SQL statements using the `getSql` method of the `SqlGenerator` class. This method accepts the name of the SQL statement and an optional map of parameters.
 
 ```cpp
 #include <drogon/drogon.h>

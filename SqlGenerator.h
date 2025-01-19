@@ -235,7 +235,7 @@ class Parser
      * The rules are as follows:
      * @code
 <sql> ::= [NormalText] | [NormalText] {<sub_sql> [NormalText]} | [NormalText] {<param> [NormalText]}
-<param> ::= Hash LBrace Identifier RBrace
+<param> ::= Dollar LBrace Identifier RBrace
 <sub_sql> ::= At Identifier LParen [<param_list>] RParen
 <param_list> ::= <param_item> { Comma <param_item> }
 <param_item> ::= Identifier ASSIGN <param_value>

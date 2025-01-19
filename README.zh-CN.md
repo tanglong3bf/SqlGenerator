@@ -4,7 +4,7 @@
 
 ## 概述
 
-SqlGenerator 是一个动态 SQL 语句生成器，支持参数替换和子 SQL 语句的包含。通过在 Json 配置文件中定义子 SQL 语句，它允许更灵活和模块化的 SQL 语句生成。
+SqlGenerator 是一个动态 SQL 语句生成器，支持参数替换和包含子 SQL 语句。通过在 Json 配置文件中定义 SQL 语句，它允许更灵活和模块化的编写 SQL 语句。
 
 ### 灵感来源
 
@@ -16,7 +16,7 @@ SqlGenerator 主要由四个类组成：
 
 - `Token` ：表示 SQL 语句中的一个标记。
 - `Lexer` ：将 SQL 语句分割成 Token 序列。
-- `Parser` ：处理标记以生成最终的 SQL 语句，包括参数替换和子 SQL 语句的包含。
+- `Parser` ：处理 Token 序列以生成最终的 SQL 语句，包括参数替换和包含子 SQL 语句。
 - `SqlGenerator` ：插件本体，继承自 `drogon::Plugin<SqlGenerator>` 。
 
 ## 使用指南
@@ -38,7 +38,7 @@ git clone https://github.com/tanglong3bf/SqlGenerator.git
 
 ```cmake
 # ...
-aux_source_directory(plugins/SqlGenerator/src SQL_SRC)
+aux_source_directory(plugins/SqlGenerator SQL_SRC)
 # ...
 target_sources(${PROJECT_NAME}
                PRIVATE
@@ -69,7 +69,7 @@ plugins:
         get_user_by_name:
           main: SELECT * FROM user WHERE name LIKE @name_with_wildcard(raw_name=${name})
           name_with_wildcard: "'%${raw_name}%'"
-        # 参数值可以从子 SQL 语句中获取
+        # 参数可以有默认值
         get_height_difference:
           main: SELECT @height_difference() FROM (@student_table()) s1, (@student_table(id = "2")) s2 # 参数值必须是字符串
           height_difference: (s1.height - s2.height) as height_difference
@@ -89,7 +89,7 @@ plugins:
 
 ### 生成 SQL 语句
 
-你可以使用 `SqlGenerator` 类的 `getSql` 方法生成 SQL 语句。该方法接受 SQL 语句的名称和一个可选的参数映射。
+你可以使用 `SqlGenerator` 类的 `getSql` 方法获取 SQL 语句。该方法接受 SQL 语句的名称和一个可选的参数列表。
 
 ```cpp
 #include <drogon/drogon.h>
