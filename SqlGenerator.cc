@@ -191,8 +191,16 @@ unordered_map<string, string> Parser::paramList()
 pair<string, string> Parser::paramItem()
 {
     auto paramName = match(Identifier);
-    match(ASSIGN);
-    auto param = paramValue();
+    std::string param;
+    if (ahead_.type() == ASSIGN)
+    {
+        match(ASSIGN);
+        param = paramValue();
+    }
+    else
+    {
+        param = params_[paramName];
+    }
     return {paramName, param};
 }
 

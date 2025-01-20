@@ -4,10 +4,6 @@
  * @brief A SQL statement generator with support for parameter substitution
  * and sub-SQL inclusion.
  *
- * @author tanglong3bf
- * @date 2025-01-17
- * @version 0.0.1
- *
  * The SqlGenerator class provides a framework for generating SQL statements
  * dynamically. It supports the use of parameters and the inclusion of sub-SQL
  * statements, which can be defined in a JSON configuration file. This allows
@@ -29,8 +25,8 @@
  * for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-01-17
- * @version 0.0.1
+ * @date 2025-01-20
+ * @version 0.0.2
  *
  * This header file contains the declarations for the SqlGenerator library,
  * including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -238,7 +234,7 @@ class Parser
 <param> ::= Dollar LBrace Identifier RBrace
 <sub_sql> ::= At Identifier LParen [<param_list>] RParen
 <param_list> ::= <param_item> { Comma <param_item> }
-<param_item> ::= Identifier ASSIGN <param_value>
+<param_item> ::= Identifier [ASSIGN <param_value>]
 <param_value> ::= ParamValue | <param> | <sub_sql>
      * @endcode
      * @return The final SQL statement with parameters substituted and sub-SQL
