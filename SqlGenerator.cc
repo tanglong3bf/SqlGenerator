@@ -89,7 +89,7 @@ Token Lexer::next()
             throw runtime_error("Invalid expression. Unclosed string.");
         }
         ++pos_;
-        return {ParamValue, str};
+        return {String, str};
     }
     // Sub-SQL name or parameter name
     else if (isalpha(c) || c == '_' || c & 0x80)
@@ -101,6 +101,16 @@ Token Lexer::next()
             identifier += sql_[pos_++];
         }
         return {Identifier, identifier};
+    }
+    // Parameter value, integer format
+    else if (isdigit(c) || c == '-' || c == '+')
+    {
+        string num;
+        while (!done() && (isdigit(sql_[pos_])))
+        {
+            num += sql_[pos_++];
+        }
+        return {Integer, num};
     }
     throw runtime_error("Invalid expression(" + to_string(pos_) +
                         "): " + sql_.substr(pos_));
@@ -153,7 +163,7 @@ string Parser::param()
     match(LBrace);
     auto paramName = match(Identifier);
     match(RBrace);
-    return params_[paramName];
+    return getParamByName(paramName);
 }
 
 string Parser::subSql()
@@ -161,7 +171,7 @@ string Parser::subSql()
     match(At);
     auto subSqlName = match(Identifier);
     match(LParen);
-    unordered_map<string, string> params = {};
+    ParamList params = {};
     if (ahead_.type() == Identifier)
     {
         params = paramList();
@@ -170,9 +180,9 @@ string Parser::subSql()
     return subSqlGetter_(subSqlName, params);
 }
 
-unordered_map<string, string> Parser::paramList()
+ParamList Parser::paramList()
 {
-    unordered_map<string, string> result;
+    ParamList result;
     result.emplace(paramItem());
     while (true)
     {
@@ -199,16 +209,20 @@ pair<string, string> Parser::paramItem()
     }
     else
     {
-        param = params_[paramName];
+        param = getParamByName(paramName);
     }
     return {paramName, param};
 }
 
 string Parser::paramValue()
 {
-    if (ahead_.type() == ParamValue)
+    if (ahead_.type() == String)
     {
-        return match(ParamValue);
+        return match(String);
+    }
+    else if (ahead_.type() == Integer)
+    {
+        return match(Integer);
     }
     else if (ahead_.type() == Dollar)
     {
@@ -229,6 +243,23 @@ string Parser::match(TokenType type)
     return value;
 }
 
+string Parser::getParamByName(const string &paramName) const
+{
+    auto &value = params_.at(paramName);
+    if (holds_alternative<string>(value))
+    {
+        return get<string>(value);
+    }
+    else if (holds_alternative<int64_t>(value))
+    {
+        return to_string(get<int64_t>(value));
+    }
+    else  // holds_alternative<trantor::Date>(value)
+    {
+        return "'" + get<trantor::Date>(value).toDbStringLocal() + "'";
+    }
+}
+
 void SqlGenerator::initAndStart(const Json::Value &config)
 {
     assert(config.isObject());
@@ -236,8 +267,7 @@ void SqlGenerator::initAndStart(const Json::Value &config)
     sqls_ = config["sqls"];
 }
 
-string SqlGenerator::getSql(const string &name,
-                            const unordered_map<string, string> &params)
+string SqlGenerator::getSql(const string &name, const ParamList &params)
 {
     assert(sqls_.isMember(name));
     const auto &item = sqls_[name];
@@ -247,8 +277,7 @@ string SqlGenerator::getSql(const string &name,
     return getMainSql(name, params);
 }
 
-string SqlGenerator::getMainSql(const string &name,
-                                unordered_map<string, string> params)
+string SqlGenerator::getMainSql(const string &name, ParamList params)
 {
     if (sqls_[name].isString())
     {
@@ -259,7 +288,7 @@ string SqlGenerator::getMainSql(const string &name,
 
 string SqlGenerator::getSubSql(const string &name,
                                const string &subSqlName,
-                               unordered_map<string, string> params)
+                               ParamList params)
 {
     // Set default parameters if not provided by the user
     auto setDefaultParam = [&]() {
@@ -270,10 +299,18 @@ string SqlGenerator::getSubSql(const string &name,
             auto &paramsJson = subSqlJson["params"];
             for (const auto &paramName : paramsJson.getMemberNames())
             {
-                if (paramsJson[paramName].isString() &&
-                    params.find(paramName) == params.end())
+                if (params.find(paramName) == params.end())
                 {
-                    params.emplace(paramName, paramsJson[paramName].asString());
+                    if (paramsJson[paramName].isString())
+                    {
+                        params.emplace(paramName,
+                                       paramsJson[paramName].asString());
+                    }
+                    else if (paramsJson[paramName].isInt())
+                    {
+                        params.emplace(paramName,
+                                       paramsJson[paramName].asInt());
+                    }
                 }
             }
         }
@@ -314,16 +351,14 @@ string SqlGenerator::getSubSql(const string &name,
     parsers_[name]
         .at(subSqlName)
         .setSubSqlGetter(
-            [this, &name](const string &subSqlName,
-                          const unordered_map<string, string> &params) {
+            [this, &name](const string &subSqlName, const ParamList &params) {
                 return getSubSql(name, subSqlName, params);
             });
 
     return parsers_[name].at(subSqlName).parse();
 }
 
-string SqlGenerator::getSimpleSql(const string &name,
-                                  const unordered_map<string, string> &params)
+string SqlGenerator::getSimpleSql(const string &name, const ParamList &params)
 
 {
     if (parsers_.find(name) == parsers_.end())

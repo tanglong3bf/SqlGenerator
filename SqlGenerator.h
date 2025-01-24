@@ -26,7 +26,7 @@
  *
  * @author tanglong3bf
  * @date 2025-01-20
- * @version 0.0.2
+ * @version 0.1.0
  *
  * This header file contains the declarations for the SqlGenerator library,
  * including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -36,6 +36,7 @@
 #pragma once
 
 #include <drogon/plugins/Plugin.h>
+#include <variant>
 
 /**
  * @namespace tl::sql
@@ -56,7 +57,8 @@ enum TokenType
     Identifier,  ///< An identifier, such as a sub sql name or param name.
     LParen,      ///< '('
     ASSIGN,      ///< '='
-    ParamValue,  ///< A parameter value enclosed in quotes.
+    String,      ///< A string parameter value.
+    Integer,     ///< An integer parameter value.
     Comma,       ///< ','
     RParen,      ///< ')'
     Dollar,      ///< '$'
@@ -170,6 +172,10 @@ class Lexer
     size_t parenDepth_{0};  ///< The current depth of nested parentheses.
 };
 
+using ParamList =
+    std::unordered_map<std::string,
+                       std::variant<int64_t, trantor::Date, std::string>>;
+
 /**
  * @class Parser
  * @brief Processes tokens to generate the final SQL statement.
@@ -204,7 +210,7 @@ class Parser
      * @brief Sets the parameters for the SQL statement.
      * @param params A map of parameter names and their values.
      */
-    void setParams(const std::unordered_map<std::string, std::string>& params)
+    void setParams(const ParamList& params)
     {
         this->params_ = params;
     }
@@ -215,9 +221,8 @@ class Parser
      * and a map of parameters, and returns the sub-SQL statement.
      */
     void setSubSqlGetter(
-        const std::function<std::string(
-            const std::string&,
-            const std::unordered_map<std::string, std::string>&)>& subSqlGetter)
+        const std::function<std::string(const std::string&, const ParamList&)>&
+            subSqlGetter)
     {
         this->subSqlGetter_ = subSqlGetter;
     }
@@ -250,7 +255,7 @@ class Parser
 
     std::string subSql();
 
-    std::unordered_map<std::string, std::string> paramList();
+    ParamList paramList();
 
     std::pair<std::string, std::string> paramItem();
 
@@ -258,12 +263,12 @@ class Parser
 
     std::string match(TokenType);
 
+    std::string getParamByName(const std::string& paramName) const;
+
   private:
-    std::unordered_map<std::string, std::string>
-        params_;  ///< Map of parameter names and their values.
-    std::function<
-        std::string(const std::string&,
-                    const std::unordered_map<std::string, std::string>&)>
+    ParamList params_;  ///< Map of parameter names and their values.
+    std::function<std::string(const std::string&,
+                              const ParamList&)>
         subSqlGetter_;  ///< Function to retrieve sub-SQL statements.
     Lexer lexer_;       ///< Lexer used to tokenize the SQL statement.
     Token ahead_;       ///< The next token to be processed.
@@ -298,9 +303,7 @@ class SqlGenerator : public drogon::Plugin<SqlGenerator>
      * empty map).
      * @return The SQL statement with parameters substituted.
      */
-    std::string getSql(
-        const std::string& name,
-        const std::unordered_map<std::string, std::string>& params = {});
+    std::string getSql(const std::string& name, const ParamList& params = {});
 
   private:
     /**
@@ -309,8 +312,7 @@ class SqlGenerator : public drogon::Plugin<SqlGenerator>
      * @param params A map of parameter names and their values.
      * @return The main SQL statement with parameters substituted.
      */
-    std::string getMainSql(const std::string& name,
-                           std::unordered_map<std::string, std::string> params);
+    std::string getMainSql(const std::string& name, ParamList params);
 
     /**
      * @brief Retrieves a sub-SQL statement by name.
@@ -322,7 +324,7 @@ class SqlGenerator : public drogon::Plugin<SqlGenerator>
      */
     std::string getSubSql(const std::string& name,
                           const std::string& subSqlName,
-                          std::unordered_map<std::string, std::string> params);
+                          ParamList params);
 
     /**
      * @brief Retrieves a simple SQL statement by name.
@@ -330,9 +332,7 @@ class SqlGenerator : public drogon::Plugin<SqlGenerator>
      * @param params A map of parameter names and their values.
      * @return The simple SQL statement with parameters substituted.
      */
-    std::string getSimpleSql(
-        const std::string& name,
-        const std::unordered_map<std::string, std::string>& params);
+    std::string getSimpleSql(const std::string& name, const ParamList& params);
 
   private:
     Json::Value sqls_;  ///< The JSON object containing SQL statements.
