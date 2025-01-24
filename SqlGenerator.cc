@@ -32,6 +32,7 @@ Token Lexer::next()
         {'$', Dollar},
         {'{', LBrace},
         {'}', RBrace},
+        {'.', Dot},
     };
 
     auto c = sql_[pos_];
@@ -72,6 +73,7 @@ Token Lexer::next()
         case ',':
         case '=':
         case '{':
+        case '.':
         label:
             return {tokenMap.at(sql_[pos_++])};
     }
@@ -161,9 +163,14 @@ string Parser::param()
 {
     match(Dollar);
     match(LBrace);
-    auto paramName = match(Identifier);
+    vector<string> paramNameList{match(Identifier)};
+    while (ahead_.type() == Dot)
+    {
+        match(Dot);
+        paramNameList.emplace_back(match(Identifier));
+    }
     match(RBrace);
-    return getParamByName(paramName);
+    return getParamByName(paramNameList);
 }
 
 string Parser::subSql()
@@ -209,7 +216,7 @@ pair<string, string> Parser::paramItem()
     }
     else
     {
-        param = getParamByName(paramName);
+        param = getParamByName({paramName});
     }
     return {paramName, param};
 }
@@ -243,21 +250,70 @@ string Parser::match(TokenType type)
     return value;
 }
 
-string Parser::getParamByName(const string &paramName) const
+string Parser::getParamByName(const vector<string> &paramNameList) const
 {
-    auto &value = params_.at(paramName);
-    if (holds_alternative<string>(value))
+    assert(paramNameList.size() > 0);
+    auto &value = params_.at(paramNameList[0]);
+    if (paramNameList.size() == 1)
     {
-        return get<string>(value);
+        if (holds_alternative<string>(value))
+        {
+            return get<string>(value);
+        }
+        else if (holds_alternative<int64_t>(value))
+        {
+            return to_string(get<int64_t>(value));
+        }
+        else if (holds_alternative<trantor::Date>(value))
+        {
+            return "'" + get<trantor::Date>(value).toDbStringLocal() + "'";
+        }
+        else  // Json::Value
+        {
+            auto json = get<Json::Value>(value);
+            if (json.isInt())
+            {
+                return to_string(json.asInt());
+            }
+            else if (json.isString())
+            {
+                return json.asString();
+            }
+        }
+        throw runtime_error("Read parameter value failed. Param name:" +
+                            paramNameList[0]);
     }
-    else if (holds_alternative<int64_t>(value))
+    try
     {
-        return to_string(get<int64_t>(value));
+        if (holds_alternative<Json::Value>(value))
+        {
+            auto json = get<Json::Value>(value);
+            for (int i = 1; i < paramNameList.size(); ++i)
+            {
+                if (json.isMember(paramNameList[i]))
+                {
+                    json = json[paramNameList[i]];
+                }
+            }
+            if (json.isInt())
+            {
+                return to_string(json.asInt());
+            }
+            else if (json.isString())
+            {
+                return json.asString();
+            }
+        }
     }
-    else  // holds_alternative<trantor::Date>(value)
+    catch (const std::out_of_range &ignore)
     {
-        return "'" + get<trantor::Date>(value).toDbStringLocal() + "'";
     }
+    std::string fullName = paramNameList[0];
+    for (int i = 1; i < paramNameList.size(); ++i)
+    {
+        fullName += "." + paramNameList[i];
+    }
+    throw runtime_error("Read parameter value failed. Param name:" + fullName);
 }
 
 void SqlGenerator::initAndStart(const Json::Value &config)

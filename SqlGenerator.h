@@ -25,8 +25,8 @@
  * for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-01-20
- * @version 0.1.0
+ * @date 2025-01-24
+ * @version 0.2.0
  *
  * This header file contains the declarations for the SqlGenerator library,
  * including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -64,6 +64,7 @@ enum TokenType
     Dollar,      ///< '$'
     LBrace,      ///< '{'
     RBrace,      ///< '}'
+    Dot,         ///< '.'
     Unknown      ///< An unknown token type.
 };
 
@@ -172,9 +173,9 @@ class Lexer
     size_t parenDepth_{0};  ///< The current depth of nested parentheses.
 };
 
-using ParamList =
-    std::unordered_map<std::string,
-                       std::variant<int64_t, trantor::Date, std::string>>;
+using ParamList = std::unordered_map<
+    std::string,
+    std::variant<int64_t, trantor::Date, std::string, Json::Value>>;
 
 /**
  * @class Parser
@@ -236,7 +237,7 @@ class Parser
      * The rules are as follows:
      * @code
 <sql> ::= [NormalText] | [NormalText] {<sub_sql> [NormalText]} | [NormalText] {<param> [NormalText]}
-<param> ::= Dollar LBrace Identifier RBrace
+<param> ::= Dollar LBrace Identifier {Dot Identifier} RBrace
 <sub_sql> ::= At Identifier LParen [<param_list>] RParen
 <param_list> ::= <param_item> { Comma <param_item> }
 <param_item> ::= Identifier [ASSIGN <param_value>]
@@ -263,7 +264,7 @@ class Parser
 
     std::string match(TokenType);
 
-    std::string getParamByName(const std::string& paramName) const;
+    std::string getParamByName(const std::vector<std::string>& paramName) const;
 
   private:
     ParamList params_;  ///< Map of parameter names and their values.
