@@ -13,9 +13,12 @@
  * by supporting parameter substitution and sub-SQL inclusion.
  */
 #include "SqlGenerator.h"
+#include <drogon/utils/Utilities.h>
 
 using namespace ::std;
 using namespace ::tl::sql;
+using namespace ::drogon;
+using namespace ::drogon::utils;
 
 Token Lexer::next()
 {
@@ -32,6 +35,8 @@ Token Lexer::next()
         {'$', Dollar},
         {'{', LBrace},
         {'}', RBrace},
+        {'[', LBracket},
+        {']', RBracket},
         {'.', Dot},
     };
 
@@ -74,6 +79,8 @@ Token Lexer::next()
         case '=':
         case '{':
         case '.':
+        case '[':
+        case ']':
         label:
             return {tokenMap.at(sql_[pos_++])};
     }
@@ -127,6 +134,7 @@ string Parser::parse()
     throw runtime_error("Invalid expression.");
 }
 
+// <sql> ::= [NormalText] {(<sub_sql>|<param>) [NormalText]}
 string Parser::sql()
 {
     string result;
@@ -139,40 +147,81 @@ string Parser::sql()
         if (ahead_.type() == At)
         {
             result += subSql();
-            if (ahead_.type() == NormalText)
-            {
-                result += match(NormalText);
-            }
         }
         else if (ahead_.type() == Dollar)
         {
             result += param();
-            if (ahead_.type() == NormalText)
-            {
-                result += match(NormalText);
-            }
         }
         else
         {
             return result;
         }
+        if (ahead_.type() == NormalText)
+        {
+            result += match(NormalText);
+        }
     }
 }
 
+// <param> ::= Dollar LBrace Identifier
+//             {{LBracket Integer RBracket} {Dot Identifier}}
+//             RBrace
 string Parser::param()
 {
     match(Dollar);
     match(LBrace);
-    vector<string> paramNameList{match(Identifier)};
-    while (ahead_.type() == Dot)
+    auto paramName = match(Identifier);
+    auto param = getParamByName(paramName);
+    string result;
+    while (true)
     {
-        match(Dot);
-        paramNameList.emplace_back(match(Identifier));
+        if (ahead_.type() != LBracket && ahead_.type() != Dot)
+        {
+            if (holds_alternative<string>(param))
+            {
+                result = get<string>(param);
+            }
+            else if (holds_alternative<Json::Value>(param))
+            {
+                result = get<Json::Value>(param).asString();
+            }
+            break;
+        }
+        while (true)
+        {
+            if (ahead_.type() != LBracket)
+            {
+                break;
+            }
+            match(LBracket);
+            auto index = utils::fromString<int>(match(Integer));
+            match(RBracket);
+            auto json = get<Json::Value>(param);
+            if (json.isArray() && index < json.size())
+            {
+                param = json[index];
+            }
+        }
+        while (true)
+        {
+            if (ahead_.type() != Dot)
+            {
+                break;
+            }
+            match(Dot);
+            auto fieldName = match(Identifier);
+            auto json = get<Json::Value>(param);
+            if (json.isObject())
+            {
+                param = json[fieldName];
+            }
+        }
     }
     match(RBrace);
-    return getParamByName(paramNameList);
+    return result;
 }
 
+// <sub_sql> ::= At Identifier LParen [<param_list>] RParen
 string Parser::subSql()
 {
     match(At);
@@ -187,6 +236,7 @@ string Parser::subSql()
     return subSqlGetter_(subSqlName, params);
 }
 
+// <param_list> ::= <param_item> { Comma <param_item> }
 ParamList Parser::paramList()
 {
     ParamList result;
@@ -205,10 +255,11 @@ ParamList Parser::paramList()
     }
 }
 
+// <param_item> ::= Identifier [ASSIGN <param_value>]
 pair<string, string> Parser::paramItem()
 {
     auto paramName = match(Identifier);
-    std::string param;
+    string param;
     if (ahead_.type() == ASSIGN)
     {
         match(ASSIGN);
@@ -216,11 +267,16 @@ pair<string, string> Parser::paramItem()
     }
     else
     {
-        param = getParamByName({paramName});
+        auto result = getParamByName(paramName);
+        if (holds_alternative<string>(result))
+        {
+            param = get<string>(result);
+        }
     }
     return {paramName, param};
 }
 
+// <param_value> ::= ParamValue | <param> | <sub_sql>
 string Parser::paramValue()
 {
     if (ahead_.type() == String)
@@ -250,70 +306,31 @@ string Parser::match(TokenType type)
     return value;
 }
 
-string Parser::getParamByName(const vector<string> &paramNameList) const
+variant<string, Json::Value> Parser::getParamByName(
+    const string &paramName) const
 {
-    assert(paramNameList.size() > 0);
-    auto &value = params_.at(paramNameList[0]);
-    if (paramNameList.size() == 1)
+    auto it = params_.find(paramName);
+    if (it == params_.end())
     {
-        if (holds_alternative<string>(value))
-        {
-            return get<string>(value);
-        }
-        else if (holds_alternative<int64_t>(value))
-        {
-            return to_string(get<int64_t>(value));
-        }
-        else if (holds_alternative<trantor::Date>(value))
-        {
-            return "'" + get<trantor::Date>(value).toDbStringLocal() + "'";
-        }
-        else  // Json::Value
-        {
-            auto json = get<Json::Value>(value);
-            if (json.isInt())
-            {
-                return to_string(json.asInt());
-            }
-            else if (json.isString())
-            {
-                return json.asString();
-            }
-        }
-        throw runtime_error("Read parameter value failed. Param name:" +
-                            paramNameList[0]);
+        LOG_WARN << "Parameter " + paramName + " not found.";
+        return string();
     }
-    try
+    if (holds_alternative<string>(it->second))
     {
-        if (holds_alternative<Json::Value>(value))
-        {
-            auto json = get<Json::Value>(value);
-            for (int i = 1; i < paramNameList.size(); ++i)
-            {
-                if (json.isMember(paramNameList[i]))
-                {
-                    json = json[paramNameList[i]];
-                }
-            }
-            if (json.isInt())
-            {
-                return to_string(json.asInt());
-            }
-            else if (json.isString())
-            {
-                return json.asString();
-            }
-        }
+        return get<string>(it->second);
     }
-    catch (const std::out_of_range &ignore)
+    else if (holds_alternative<int64_t>(it->second))
     {
+        return to_string(get<int64_t>(it->second));
     }
-    std::string fullName = paramNameList[0];
-    for (int i = 1; i < paramNameList.size(); ++i)
+    else if (holds_alternative<trantor::Date>(it->second))
     {
-        fullName += "." + paramNameList[i];
+        return "'" + get<trantor::Date>(it->second).toDbStringLocal() + "'";
     }
-    throw runtime_error("Read parameter value failed. Param name:" + fullName);
+    else  // Json::Value
+    {
+        return get<Json::Value>(it->second);
+    }
 }
 
 void SqlGenerator::initAndStart(const Json::Value &config)
@@ -357,15 +374,23 @@ string SqlGenerator::getSubSql(const string &name,
             {
                 if (params.find(paramName) == params.end())
                 {
-                    if (paramsJson[paramName].isString())
+                    switch (paramsJson[paramName].type())
                     {
-                        params.emplace(paramName,
-                                       paramsJson[paramName].asString());
-                    }
-                    else if (paramsJson[paramName].isInt())
-                    {
-                        params.emplace(paramName,
-                                       paramsJson[paramName].asInt());
+                        case Json::stringValue:
+                            params.emplace(paramName,
+                                           paramsJson[paramName].asString());
+                            break;
+                        case Json::intValue:
+                            params.emplace(paramName,
+                                           paramsJson[paramName].asInt());
+                            break;
+                        case Json::objectValue:
+                            params.emplace(paramName, paramsJson[paramName]);
+                            break;
+                        default:
+                            LOG_ERROR << "Invalid parameter type: "
+                                      << paramsJson[paramName].type();
+                            break;
                     }
                 }
             }
@@ -415,7 +440,6 @@ string SqlGenerator::getSubSql(const string &name,
 }
 
 string SqlGenerator::getSimpleSql(const string &name, const ParamList &params)
-
 {
     if (parsers_.find(name) == parsers_.end())
     {

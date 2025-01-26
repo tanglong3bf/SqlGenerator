@@ -25,8 +25,8 @@
  * for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-01-24
- * @version 0.2.0
+ * @date 2025-01-25
+ * @version 0.3.0
  *
  * This header file contains the declarations for the SqlGenerator library,
  * including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -65,6 +65,8 @@ enum TokenType
     LBrace,      ///< '{'
     RBrace,      ///< '}'
     Dot,         ///< '.'
+    LBracket,    ///< '['
+    RBracket,    ///< ']'
     Unknown      ///< An unknown token type.
 };
 
@@ -236,8 +238,8 @@ class Parser
      * statements.
      * The rules are as follows:
      * @code
-<sql> ::= [NormalText] | [NormalText] {<sub_sql> [NormalText]} | [NormalText] {<param> [NormalText]}
-<param> ::= Dollar LBrace Identifier {Dot Identifier} RBrace
+<sql> ::= [NormalText] {(<sub_sql>|<param>) [NormalText]}
+<param> ::= Dollar LBrace Identifier {{LBracket Integer RBracket} {Dot Identifier}} RBrace
 <sub_sql> ::= At Identifier LParen [<param_list>] RParen
 <param_list> ::= <param_item> { Comma <param_item> }
 <param_item> ::= Identifier [ASSIGN <param_value>]
@@ -264,7 +266,15 @@ class Parser
 
     std::string match(TokenType);
 
-    std::string getParamByName(const std::vector<std::string>& paramName) const;
+    /**
+     * @brief Retrieves the value of a parameter by name. If the parameter is
+     * not found, an empty string is returned.
+     * @param paramName The name of the parameter to retrieve.
+     * @return The value of the parameter, or an empty string.
+     * @note int64_t, trantor::Date will be converted to string.
+     */
+    std::variant<std::string, Json::Value> getParamByName(
+        const std::string& paramName) const;
 
   private:
     ParamList params_;  ///< Map of parameter names and their values.
