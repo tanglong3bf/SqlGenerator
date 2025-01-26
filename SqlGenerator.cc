@@ -4,8 +4,8 @@
  * framework for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-01-17
- * @version 0.0.1
+ * @date 2025-01-26
+ * @version 0.3.1
  *
  * This implementation file contains the definitions for the SqlGenerator
  * library, including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -88,10 +88,11 @@ Token Lexer::next()
     // Parameter value, string format
     if (c == '\'' || c == '"')
     {
+        ++pos_;
         string str;
         while (!done() && sql_[pos_] != c)
         {
-            str += sql_[++pos_];
+            str += sql_[pos_++];
         }
         if (done())
         {
