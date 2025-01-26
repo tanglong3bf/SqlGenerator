@@ -277,7 +277,7 @@ pair<string, string> Parser::paramItem()
     return {paramName, param};
 }
 
-// <param_value> ::= ParamValue | <param> | <sub_sql>
+// <param_value> ::= String | Integer | <param> | <sub_sql>
 string Parser::paramValue()
 {
     if (ahead_.type() == String)

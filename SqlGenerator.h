@@ -243,7 +243,7 @@ class Parser
 <sub_sql> ::= At Identifier LParen [<param_list>] RParen
 <param_list> ::= <param_item> { Comma <param_item> }
 <param_item> ::= Identifier [ASSIGN <param_value>]
-<param_value> ::= ParamValue | <param> | <sub_sql>
+<param_value> ::= String | Integer | <param> | <sub_sql>
      * @endcode
      * @return The final SQL statement with parameters substituted and sub-SQL
      * statements included.
