@@ -67,20 +67,21 @@ plugins:
         get_user_by_id: SELECT * FROM user WHERE id = ${user_id}
         # Can call sub-SQL and pass parameters
         get_user_by_name:
-          main: SELECT * FROM user WHERE name LIKE @name_with_wildcard(raw_name=${name})
+          main: SELECT * FROM user WHERE name LIKE @name_with_wildcard(raw_name=name)
           name_with_wildcard: "'%${raw_name}%'"
         # Param can have a default value
         get_height_difference:
-          main: SELECT @height_difference() FROM (@student_table()) s1, (@student_table(id = "2")) s2 # param value must be string
+          main: SELECT @height_difference() FROM (@student_table()) s1, (@student_table(id = 2)) s2
           height_difference: (s1.height - s2.height) as height_difference
           student_table:
             sql: SELECT * FROM student WHERE id = ${id}
             params:
-              id: "1" # Default value for id parameter
+              id: 1 # Default value for id parameter
         # More complex example: structure is clearer when writing complex SQL
         get_menu_with_submenu:
-          main: WITH RECURSIVE menu_tree AS (@recursive_query(id=${menu_id})) SELECT * FROM menu_tree
-          recursive_query: "@root_node(id=${id}) UNION ALL @child_nodes()"
+          main: WITH RECURSIVE menu_tree AS (@recursive_query(id=menu_id)) SELECT * FROM menu_tree
+          # @root_node(id=id) can be simplified as @root_node(id)
+          recursive_query: "@root_node(id=id) UNION ALL @child_nodes()"
           root_node: SELECT @root_node_columns() FROM menu WHERE id=${id}
           root_node_columns: id, parent_id, ...
           child_nodes: SELECT @child_node_columns() FROM menu m INNER JOIN menu_tree mt ON m.parent_id = mt.id
@@ -105,7 +106,7 @@ int main()
         if (sqlGenerator)
         {
             auto sql = sqlGenerator->getSql("get_menu_with_submenu",
-                                            {{"menu_id", "1"}});
+                                            {{"menu_id", 1}});
             LOG_INFO << sql;
         }
     });
@@ -120,6 +121,6 @@ int main()
 The SQL statements are defined using a specific syntax:
 
 - Parameter Substitution: Use `$paramName` to substitute parameters.
-- Sub-SQL Inclusion: Use `@subSqlName(param1=value1, param2=value2)` to include sub-SQL statements with parameters. Parameters' type only can be string.
+- Sub-SQL Inclusion: Use `@subSqlName(param1=value1, param2=value2)` to include sub-SQL statements with parameters.
 
 This document provides a basic overview of how to use the `SqlGenerator` plugin to dynamically generate SQL statements with parameter substitution and sub-SQL inclusion.

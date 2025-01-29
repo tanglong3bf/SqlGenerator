@@ -67,20 +67,21 @@ plugins:
         get_user_by_id: SELECT * FROM user WHERE id = ${user_id}
         # 可以调用子 SQL 并传递参数
         get_user_by_name:
-          main: SELECT * FROM user WHERE name LIKE @name_with_wildcard(raw_name=${name})
+          main: SELECT * FROM user WHERE name LIKE @name_with_wildcard(raw_name=name)
           name_with_wildcard: "'%${raw_name}%'"
         # 参数可以有默认值
         get_height_difference:
-          main: SELECT @height_difference() FROM (@student_table()) s1, (@student_table(id = "2")) s2 # 参数值必须是字符串
+          main: SELECT @height_difference() FROM (@student_table()) s1, (@student_table(id = 2)) s2
           height_difference: (s1.height - s2.height) as height_difference
           student_table:
             sql: SELECT * FROM student WHERE id = ${id}
             params:
-              id: "1" # id 参数的默认值
+              id: 1 # id 参数的默认值
         # 更复杂的例子：结构更清晰，便于编写复杂的 SQL
         get_menu_with_submenu:
-          main: WITH RECURSIVE menu_tree AS (@recursive_query(id=${menu_id})) SELECT * FROM menu_tree
-          recursive_query: "@root_node(id=${id}) UNION ALL @child_nodes()"
+          main: WITH RECURSIVE menu_tree AS (@recursive_query(id=menu_id)) SELECT * FROM menu_tree
+          # @root_node(id=id) 可以简写为 @root_node(id)
+          recursive_query: "@root_node(id=id) UNION ALL @child_nodes()"
           root_node: SELECT @root_node_columns() FROM menu WHERE id=${id}
           root_node_columns: id, parent_id, ...
           child_nodes: SELECT @child_node_columns() FROM menu m INNER JOIN menu_tree mt ON m.parent_id = mt.id
@@ -105,7 +106,7 @@ int main()
         if (sqlGenerator)
         {
             auto sql = sqlGenerator->getSql("get_menu_with_submenu",
-                                            {{"menu_id", "1"}});
+                                            {{"menu_id", 1}});
             LOG_INFO << sql;
         }
     });
@@ -120,6 +121,6 @@ int main()
 定义 SQL 语句时，可以使用以下语法：
 
 - 参数替换：使用 `${paramName}` 进行参数替换。
-- 包含子 SQL：使用 `@subSqlName(param1=value1, param2=value2)` 包含子 SQL 语句，可以传参。参数类型只支持字符串。
+- 包含子 SQL：使用 `@subSqlName(param1=value1, param2=value2)` 包含子 SQL 语句，可以传参。
 
 本文档提供了使用 `SqlGenerator` 插件动态生成 SQL 语句（支持参数替换和子SQL包含）的基本概述。

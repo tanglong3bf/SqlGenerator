@@ -25,8 +25,8 @@
  * for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-01-26
- * @version 0.3.1
+ * @date 2025-01-29
+ * @version 0.4.0
  *
  * This header file contains the declarations for the SqlGenerator library,
  * including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -175,9 +175,10 @@ class Lexer
     size_t parenDepth_{0};  ///< The current depth of nested parentheses.
 };
 
-using ParamList = std::unordered_map<
-    std::string,
-    std::variant<int64_t, trantor::Date, std::string, Json::Value>>;
+using ParamList =
+    std::unordered_map<std::string,
+                       std::variant<int32_t, std::string, Json::Value>>;
+using ParamItem = std::variant<int32_t, std::string, Json::Value>;
 
 /**
  * @class Parser
@@ -238,12 +239,20 @@ class Parser
      * statements.
      * The rules are as follows:
      * @code
-<sql> ::= [NormalText] {(<sub_sql>|<param>) [NormalText]}
-<param> ::= Dollar LBrace Identifier {{LBracket Integer RBracket} {Dot Identifier}} RBrace
-<sub_sql> ::= At Identifier LParen [<param_list>] RParen
-<param_list> ::= <param_item> { Comma <param_item> }
-<param_item> ::= Identifier [ASSIGN <param_value>]
-<param_value> ::= String | Integer | <param> | <sub_sql>
+sql ::= [NormalText] {(sub_sql|print_expr) [NormalText]}
+print_expr ::= "$" "{" expr "}"
+expr ::= Integer | String | Identifier {param_suffix} 
+param_suffix ::= "[" expr "]" | "." Identifier
+sub_sql ::= "@" Identifier "(" [param_list] ")"
+param_list ::= param_item { "," param_item }
+param_item ::= Identifier ["=" param_value]
+param_value ::= expr | sub_sql
+
+// Regular expressions to express basic tokens.
+NormalText ::= [^@$]*
+Identifier ::= [a-zA-Z0x80-0xff_][a-zA-Z0-90x80-0xff_]*
+Integer ::= [1-9]\d*|0     // remove prefix '0'
+String ::= "[^"]*" | '[^']*'
      * @endcode
      * @return The final SQL statement with parameters substituted and sub-SQL
      * statements included.
@@ -254,15 +263,19 @@ class Parser
   private:
     std::string sql();
 
-    std::string param();
+    std::string printExpr();
+
+    ParamItem expr();
+
+    void paramSuffix(ParamItem& param);
 
     std::string subSql();
 
     ParamList paramList();
 
-    std::pair<std::string, std::string> paramItem();
+    ParamList::value_type paramItem();
 
-    std::string paramValue();
+    ParamItem paramValue();
 
     std::string match(TokenType);
 
@@ -271,10 +284,8 @@ class Parser
      * not found, an empty string is returned.
      * @param paramName The name of the parameter to retrieve.
      * @return The value of the parameter, or an empty string.
-     * @note int64_t, trantor::Date will be converted to string.
      */
-    std::variant<std::string, Json::Value> getParamByName(
-        const std::string& paramName) const;
+    ParamItem getParamByName(const std::string& paramName) const;
 
   private:
     ParamList params_;  ///< Map of parameter names and their values.

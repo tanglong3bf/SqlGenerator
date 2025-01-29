@@ -4,8 +4,8 @@
  * framework for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-01-26
- * @version 0.3.1
+ * @date 2025-01-29
+ * @version 0.4.0
  *
  * This implementation file contains the definitions for the SqlGenerator
  * library, including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -113,15 +113,26 @@ Token Lexer::next()
         return {Identifier, identifier};
     }
     // Parameter value, integer format
-    else if (isdigit(c) || c == '-' || c == '+')
+    else if (isdigit(c))
     {
         string num;
         while (!done() && (isdigit(sql_[pos_])))
         {
             num += sql_[pos_++];
         }
-        return {Integer, num};
+        if (num.size() == 1)
+        {
+            return {Integer, num};
+        }
+        else if (num.size() > 1 && num[0] == '0')
+        {
+            int i = 1;
+            for (; i < num.size() && num[i] == '0'; ++i)
+                ;
+            return {Integer, i == num.size() ? "0" : num.substr(i)};
+        }
     }
+
     throw runtime_error("Invalid expression(" + to_string(pos_) +
                         "): " + sql_.substr(pos_));
 }
@@ -135,7 +146,7 @@ string Parser::parse()
     throw runtime_error("Invalid expression.");
 }
 
-// <sql> ::= [NormalText] {(<sub_sql>|<param>) [NormalText]}
+// sql ::= [NormalText] {(sub_sql|print_expr) [NormalText]}
 string Parser::sql()
 {
     string result;
@@ -151,7 +162,7 @@ string Parser::sql()
         }
         else if (ahead_.type() == Dollar)
         {
-            result += param();
+            result += printExpr();
         }
         else
         {
@@ -164,65 +175,121 @@ string Parser::sql()
     }
 }
 
-// <param> ::= Dollar LBrace Identifier
-//             {{LBracket Integer RBracket} {Dot Identifier}}
-//             RBrace
-string Parser::param()
+// print_expr ::= "$" "{" expr "}"
+string Parser::printExpr()
 {
     match(Dollar);
     match(LBrace);
-    auto paramName = match(Identifier);
-    auto param = getParamByName(paramName);
-    string result;
-    while (true)
-    {
-        if (ahead_.type() != LBracket && ahead_.type() != Dot)
-        {
-            if (holds_alternative<string>(param))
-            {
-                result = get<string>(param);
-            }
-            else if (holds_alternative<Json::Value>(param))
-            {
-                result = get<Json::Value>(param).asString();
-            }
-            break;
-        }
-        while (true)
-        {
-            if (ahead_.type() != LBracket)
-            {
-                break;
-            }
-            match(LBracket);
-            auto index = utils::fromString<int>(match(Integer));
-            match(RBracket);
-            auto json = get<Json::Value>(param);
-            if (json.isArray() && index < json.size())
-            {
-                param = json[index];
-            }
-        }
-        while (true)
-        {
-            if (ahead_.type() != Dot)
-            {
-                break;
-            }
-            match(Dot);
-            auto fieldName = match(Identifier);
-            auto json = get<Json::Value>(param);
-            if (json.isObject())
-            {
-                param = json[fieldName];
-            }
-        }
-    }
+    auto result = expr();
     match(RBrace);
-    return result;
+    if (holds_alternative<int32_t>(result))
+    {
+        return to_string(get<int32_t>(result));
+    }
+    else  // string
+    {
+        return get<string>(result);
+    }
 }
 
-// <sub_sql> ::= At Identifier LParen [<param_list>] RParen
+// expr ::= Integer | String | Identifier {param_suffix}
+ParamItem Parser::expr()
+{
+    if (ahead_.type() == Integer)
+    {
+        return fromString<int32_t>(match(Integer));
+    }
+    else if (ahead_.type() == String)
+    {
+        return match(String);
+    }
+    else if (ahead_.type() == Identifier)
+    {
+        auto paramName = match(Identifier);
+        auto paramValue = getParamByName(paramName);
+        while (ahead_.type() == Dot || ahead_.type() == LBracket)
+        {
+            paramSuffix(paramValue);
+        }
+        if (holds_alternative<string>(paramValue))
+        {
+            return get<string>(paramValue);
+        }
+        else if (holds_alternative<int32_t>(paramValue))
+        {
+            return get<int32_t>(paramValue);
+        }
+        else  // Json::Value
+        {
+            auto json = get<Json::Value>(paramValue);
+            if (json.isInt())
+            {
+                return json.asInt();
+            }
+            else if (json.isString())
+            {
+                return json.asString();
+            }
+            return json;
+        }
+    }
+    throw runtime_error("Invalid expression. Empty expression.");
+}
+
+// param_suffix ::= "[" expr "]" | "." Identifier
+void Parser::paramSuffix(ParamItem &param)
+{
+    if (ahead_.type() == LBracket)
+    {
+        match(LBracket);
+        auto index = expr();
+        match(RBracket);
+        if (holds_alternative<string>(param))
+        {
+            throw runtime_error("Invalid expression. Index for string.");
+        }
+        auto json = get<Json::Value>(param);
+        if (json.isArray() && holds_alternative<int32_t>(index))
+        {
+            auto indexInt = get<int32_t>(index);
+            if (indexInt < 0 || indexInt >= json.size())
+            {
+                throw runtime_error(
+                    "Invalid expression. Array index out of range.");
+            }
+            param = json[indexInt];
+        }
+        else if (json.isObject() && holds_alternative<string>(index))
+        {
+            auto indexStr = get<string>(index);
+            if (!json.isMember(indexStr))
+            {
+                throw runtime_error(
+                    "Invalid expression. Object key not found.");
+            }
+            param = json[indexStr];
+        }
+    }
+    else if (ahead_.type() == Dot)
+    {
+        match(Dot);
+        auto memberName = match(Identifier);
+        if (holds_alternative<string>(param))
+        {
+            throw runtime_error(
+                "Invalid expression. Member access for string.");
+        }
+        auto json = get<Json::Value>(param);
+        if (!json.isObject() || !json.isMember(memberName))
+        {
+            throw runtime_error(
+                "Invalid expression. Member not found in object.");
+        }
+        param = json[memberName];
+    }
+}
+
+// sub_sql ::= "@" Identifier "(" [param_list] ")"
 string Parser::subSql()
 {
     match(At);
@@ -237,7 +304,7 @@ string Parser::subSql()
     return subSqlGetter_(subSqlName, params);
 }
 
-// <param_list> ::= <param_item> { Comma <param_item> }
+// param_list ::= param_item { "," param_item }
 ParamList Parser::paramList()
 {
     ParamList result;
@@ -256,11 +323,11 @@ ParamList Parser::paramList()
     }
 }
 
-// <param_item> ::= Identifier [ASSIGN <param_value>]
-pair<string, string> Parser::paramItem()
+// param_item ::= Identifier ["=" param_value]
+ParamList::value_type Parser::paramItem()
 {
     auto paramName = match(Identifier);
-    string param;
+    ParamItem param;
     if (ahead_.type() == ASSIGN)
     {
         match(ASSIGN);
@@ -277,24 +344,28 @@ pair<string, string> Parser::paramItem()
     return {paramName, param};
 }
 
-// <param_value> ::= String | Integer | <param> | <sub_sql>
-string Parser::paramValue()
+// param_value ::= expr | sub_sql
+ParamItem Parser::paramValue()
 {
-    if (ahead_.type() == String)
-    {
-        return match(String);
-    }
-    else if (ahead_.type() == Integer)
-    {
-        return match(Integer);
-    }
-    else if (ahead_.type() == Dollar)
-    {
-        return param();
-    }
-    else if (ahead_.type() == At)
+    if (ahead_.type() == At)
     {
         return subSql();
+    }
+    else
+    {
+        auto result = expr();
+        if (holds_alternative<int32_t>(result))
+        {
+            return to_string(get<int32_t>(result));
+        }
+        else if (holds_alternative<string>(result))
+        {
+            return get<string>(result);
+        }
+        else  // Json::Value
+        {
+            return get<Json::Value>(result);
+        }
     }
     throw runtime_error("Invalid expression. Empty parameter value.");
 }
@@ -307,8 +378,7 @@ string Parser::match(TokenType type)
     return value;
 }
 
-variant<string, Json::Value> Parser::getParamByName(
-    const string &paramName) const
+ParamItem Parser::getParamByName(const string &paramName) const
 {
     auto it = params_.find(paramName);
     if (it == params_.end())
@@ -320,13 +390,9 @@ variant<string, Json::Value> Parser::getParamByName(
     {
         return get<string>(it->second);
     }
-    else if (holds_alternative<int64_t>(it->second))
+    else if (holds_alternative<int32_t>(it->second))
     {
-        return to_string(get<int64_t>(it->second));
-    }
-    else if (holds_alternative<trantor::Date>(it->second))
-    {
-        return "'" + get<trantor::Date>(it->second).toDbStringLocal() + "'";
+        return get<int32_t>(it->second);
     }
     else  // Json::Value
     {
@@ -385,12 +451,8 @@ string SqlGenerator::getSubSql(const string &name,
                             params.emplace(paramName,
                                            paramsJson[paramName].asInt());
                             break;
-                        case Json::objectValue:
-                            params.emplace(paramName, paramsJson[paramName]);
-                            break;
                         default:
-                            LOG_ERROR << "Invalid parameter type: "
-                                      << paramsJson[paramName].type();
+                            params.emplace(paramName, paramsJson[paramName]);
                             break;
                     }
                 }
