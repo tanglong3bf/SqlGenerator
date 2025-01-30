@@ -38,7 +38,7 @@ git clone https://github.com/tanglong3bf/SqlGenerator.git
 
 ```cmake
 # ...
-aux_source_directory(plugins/SqlGenerator SQL_SRC)
+aux_source_directory(plugins/SqlGenerator/src SQL_SRC)
 # ...
 target_sources(${PROJECT_NAME}
                PRIVATE
@@ -49,7 +49,7 @@ target_sources(${PROJECT_NAME}
 **compile_flags.txt（可选）**
 
 ```
--I./plugins/SqlGenerator
+-I./plugins/SqlGenerator/src
 ```
 
 ### 配置

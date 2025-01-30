@@ -1,0 +1,70 @@
+{
+	"sqls": {
+		"count_user": "SELECT COUNT(*) FROM users",
+		"get_user_by_id": "SELECT * FROM users WHERE id = ${user_id}",
+		"get_user_paginated": {
+			"main": {
+				"sql": "SELECT * FROM users LIMIT ${limit} OFFSET ${offset}",
+				"params": {
+					"limit": 10,
+					"offset": 0
+				}
+			}
+		},
+		"insert_user": {
+			"main": {
+				"sql": "INSERT INTO users (username, password) VALUES ('${username}', '${password}')",
+				"params": {
+					"password": "123456"
+				}
+			}
+		},
+		"get_height_more_than_avg": {
+			"main": "SELECT player_name, height, team_id FROM player AS a WHERE height > (@get_avg_height())",
+			"get_avg_height": "SELECT avg(height) FROM player AS b WHERE a.team_id = b.team_id"
+		},
+		"sub_sql_param": {
+			"main": "main: (@level1(param = param))",
+			"level1": "level1: ${param}"
+		},
+		"deep_param": {
+			"main": "main: (@level1(param = param))",
+			"level1": "level1: (@level2(param = param))",
+			"level2": "level2: ${param}"
+		},
+		"ignore_param": {
+			"main": "main: (@level1(param))",
+			"level1": "level1: (@level2(param))",
+			"level2": "level2: ${param}"
+		},
+		"object_param": {
+			"main": {
+				"sql": "UPDATE users SET address = '${address.province}省${address.city}市' WHERE id = ${id}",
+				"params": {
+					"id": 1,
+				}
+			}
+		},
+		"array_param": {
+			"main": {
+				"sql": "UPDATE users SET address = '${address[0]}省${address[1]}市' WHERE id = ${id}",
+				"params": {
+					"id": 1,
+				}
+			}
+		},
+		"array_object_param": {
+			"main": "INSERT INTO users (name, address) VALUES (@user_value(user = users[0])), (@user_value(user = users[1]))",
+			"user_value": "'${user.name}', '${user.address.province}省${user.address.city}市'"
+		},
+		"array_object_param_with_array_param": {
+			"main": {
+				"sql": "INSERT INTO users (name, address) VALUES (@user_value(user = users[id[0]])), (@user_value(user = users[id[1]]))",
+				"params": {
+					"id" : [1, 0]
+				}
+			},
+			"user_value": "'${user.name}', '${user['address'][0]}省${user.address[1]}市'"
+		}
+	}
+}
