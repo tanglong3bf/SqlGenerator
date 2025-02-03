@@ -32,43 +32,43 @@ int main()
     sqlGenerator.initAndStart(config);
 
     auto sql = sqlGenerator.getSql("count_user");
-    cout << sql << endl;
+    cout << "count_user: " << sql << endl;
 
     sql = sqlGenerator.getSql("get_user_by_id", {{"user_id", 1}});
-    cout << sql << endl;
+    cout << "get_user_by_id: " << sql << endl;
 
     sql = sqlGenerator.getSql("get_user_paginated",
                               {{"limit", 10}, {"offset", 300}});
-    cout << sql << endl;
+    cout << "get_user_paginated: " << sql << endl;
 
     sql =
         sqlGenerator.getSql("insert_user", {{"username", string("zhangsan")}});
-    cout << sql << endl;
+    cout << "insert_user: " << sql << endl;
 
     sql = sqlGenerator.getSql("get_height_more_than_avg");
-    cout << sql << endl;
+    cout << "get_height_more_than_avg: " << sql << endl;
 
     sql = sqlGenerator.getSql("sub_sql_param", {{"param", string("param")}});
-    cout << sql << endl;
+    cout << "sub_sql_param: " << sql << endl;
 
     sql = sqlGenerator.getSql("deep_param", {{"param", string("param")}});
-    cout << sql << endl;
+    cout << "deep_param: " << sql << endl;
 
     sql = sqlGenerator.getSql("ignore_param",
                               {{"param", string("ignore_param")}});
-    cout << sql << endl;
+    cout << "ignore_param: " << sql << endl;
 
     Json::Value param;
     param["province"] = "hlj";
     param["city"] = "sfh";
     sql = sqlGenerator.getSql("object_param", {{"address", param}});
-    cout << sql << endl;
+    cout << "object_param: " << sql << endl;
 
     Json::Value param2;
     param2[0] = "hlj";
     param2[1] = "sfh";
     sql = sqlGenerator.getSql("array_param", {{"address", param2}});
-    cout << sql << endl;
+    cout << "array_param: " << sql << endl;
 
     Json::Value param3;
     param3[0]["name"] = "zhangsan";
@@ -78,7 +78,7 @@ int main()
     param3[1]["address"]["province"] = "hlj";
     param3[1]["address"]["city"] = "mdj";
     sql = sqlGenerator.getSql("array_object_param", {{"users", param3}});
-    cout << sql << endl;
+    cout << "array_object_param: " << sql << endl;
 
     Json::Value param4;
     param4[0]["name"] = "张三";
@@ -89,5 +89,11 @@ int main()
     param4[1]["address"][1] = "八面通";
     sql = sqlGenerator.getSql("array_object_param_with_array_param",
                               {{"users", param4}});
-    cout << sql << endl;
+    cout << "array_object_param_with_array_param: " << sql << endl;
+
+    sqlGenerator.printTokens("if_else_test");
+    sql = sqlGenerator.getSql("if_else_test");
+    cout << "if_else_test: " << sql << endl;
+
+    return 0;
 }

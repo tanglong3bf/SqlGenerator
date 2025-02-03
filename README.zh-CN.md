@@ -122,5 +122,9 @@ int main()
 
 - 参数替换：使用 `${paramName}` 进行参数替换。
 - 包含子 SQL：使用 `@subSqlName(param1=value1, param2=value2)` 包含子 SQL 语句，可以传参。
+  - `subSqlName(param = param)` 可以简写为 `subSqlName(param)` 。
+- 条件判断：使用 `@if(condition1) true_statement1 @elif(condition2) true_statement2 @else false_statement @endif` 进行条件判断。
+  - 条件表达式可以使用 `and` 、 `or` 、 `not` 、 `&&` 、 `||` 、 `!` 、 `(` 、 `)` 、 `==` 、 `!=` 运算符。
+  - 条件表达式可以使用 `param == null` 进行空值判断，可以简写为 `param` 。
 
 本文档提供了使用 `SqlGenerator` 插件动态生成 SQL 语句（支持参数替换和子SQL包含）的基本概述。

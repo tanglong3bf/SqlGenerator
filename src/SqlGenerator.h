@@ -25,8 +25,8 @@
  * for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-01-30
- * @version 0.4.1
+ * @date 2025-02-03
+ * @version 0.5.0
  *
  * This header file contains the declarations for the SqlGenerator library,
  * including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -36,6 +36,7 @@
 #pragma once
 
 #include <drogon/plugins/Plugin.h>
+#include <optional>
 #include <variant>
 
 /**
@@ -49,6 +50,8 @@ namespace tl::sql
 /**
  * @enum TokenType
  * @brief Enumeration defining the types of tokens used in SQL generation.
+ * @date 2025-02-03
+ * @since 0.0.1
  */
 enum TokenType
 {
@@ -67,8 +70,70 @@ enum TokenType
     Dot,         ///< '.'
     LBracket,    ///< '['
     RBracket,    ///< ']'
+    If,          ///< 'if'
+    And,         ///< 'and', '&&'
+    Or,          ///< 'or', '||'
+    Not,         ///< 'not', '!'
+    EQ,          ///< '=='
+    NEQ,         ///< '!=',
+    Else,        ///< 'else'
+    ElIf,        ///< 'elif'
+    EndIf,       ///< 'endif'
+    ForEach,     ///< 'foreach'
+    In,          ///< 'in'
+    Null,        ///< 'null'
+    EndForEach,  ///< 'endforeach'
     Unknown      ///< An unknown token type.
 };
+
+#define TOKEN_TYPE_CASE(type) \
+    case type:                \
+        os << #type;          \
+        break
+
+/**
+ * @brief Outputs the name of a TokenType to an output stream.
+ * @date 2025-02-03
+ * @since 0.5.0
+ */
+inline std::ostream& operator<<(std::ostream& os, const TokenType& type)
+{
+    switch (type)
+    {
+        TOKEN_TYPE_CASE(NormalText);
+        TOKEN_TYPE_CASE(At);
+        TOKEN_TYPE_CASE(Identifier);
+        TOKEN_TYPE_CASE(LParen);
+        TOKEN_TYPE_CASE(ASSIGN);
+        TOKEN_TYPE_CASE(String);
+        TOKEN_TYPE_CASE(Integer);
+        TOKEN_TYPE_CASE(Comma);
+        TOKEN_TYPE_CASE(RParen);
+        TOKEN_TYPE_CASE(Dollar);
+        TOKEN_TYPE_CASE(LBrace);
+        TOKEN_TYPE_CASE(RBrace);
+        TOKEN_TYPE_CASE(Dot);
+        TOKEN_TYPE_CASE(LBracket);
+        TOKEN_TYPE_CASE(RBracket);
+        TOKEN_TYPE_CASE(If);
+        TOKEN_TYPE_CASE(And);
+        TOKEN_TYPE_CASE(Or);
+        TOKEN_TYPE_CASE(Not);
+        TOKEN_TYPE_CASE(EQ);
+        TOKEN_TYPE_CASE(NEQ);
+        TOKEN_TYPE_CASE(Else);
+        TOKEN_TYPE_CASE(ElIf);
+        TOKEN_TYPE_CASE(EndIf);
+        TOKEN_TYPE_CASE(ForEach);
+        TOKEN_TYPE_CASE(In);
+        TOKEN_TYPE_CASE(Null);
+        TOKEN_TYPE_CASE(EndForEach);
+        TOKEN_TYPE_CASE(Unknown);
+    }
+    return os;
+}
+
+#undef TOKEN_TYPE_CASE
 
 /**
  * @class Token
@@ -129,7 +194,7 @@ class Token
  * @brief Breaks down the SQL statement into tokens.
  *
  * @author tanglong3bf
- * @date 2025-01-17
+ * @date 2025-02-03
  * @since 0.0.1
  */
 class Lexer
@@ -169,23 +234,45 @@ class Lexer
         return pos_ == sql_.size();
     }
 
+    /**
+     * @brief This function is used to backtrack to the previous `@`
+     * @date 2025-02-03
+     * @since 0.5.0
+     * @see Lexer::next()
+     */
+    void rollback()
+    {
+        if (rollbackPos_.empty())
+        {
+            pos_ = 0;
+        }
+        else
+        {
+            pos_ = rollbackPos_.top();
+            rollbackPos_.pop();
+        }
+        parenDepth_ = 0;
+    }
+
   private:
     std::string sql_;       ///< The SQL statement being tokenized.
     size_t pos_{0};         ///< The current position in the SQL statement.
     size_t parenDepth_{0};  ///< The current depth of nested parentheses.
+    std::stack<size_t> rollbackPos_;  ///< The number of tokens to backtrack.
 };
 
 using ParamList =
     std::unordered_map<std::string,
                        std::variant<int32_t, std::string, Json::Value>>;
-using ParamItem = std::variant<int32_t, std::string, Json::Value>;
+using ParamItem =
+    std::optional<std::variant<int32_t, std::string, Json::Value>>;
 
 /**
  * @class Parser
  * @brief Processes tokens to generate the final SQL statement.
  *
  * @author tanglong3bf
- * @date 2025-01-17
+ * @date 2025-02-03
  * @since 0.0.1
  */
 class Parser
@@ -199,6 +286,29 @@ class Parser
     Parser(const std::string& sql) : lexer_(sql)
     {
         reset();
+    }
+
+    /**
+     * @brief This function is used to print the tokens of the SQL statement.
+     * @date 2025-02-03
+     * @since 0.5.0
+     */
+    void printTokens()
+    {
+        auto printToken = [](const Token& token) {
+            std::cout << "[" << token.type() << "]";
+            if (token.value() != "")
+            {
+                std::cout << "<" << token.value() << ">";
+            }
+            std::cout << std::endl;
+        };
+        while (!lexer_.done())
+        {
+            printToken(ahead_);
+            ahead_ = lexer_.next();
+        }
+        printToken(ahead_);
     }
 
     /**
@@ -237,23 +347,35 @@ class Parser
      * This function parses the input SQL statement according to the given SQL
      * syntax rules, replaces the parameters, and processes nested sub SQL
      * statements.
+	 *
      * The rules are as follows:
-     * @code
-sql ::= [NormalText] {(sub_sql|print_expr) [NormalText]}
-print_expr ::= "$" "{" expr "}"
-expr ::= Integer | String | Identifier {param_suffix} 
-param_suffix ::= "[" expr "]" | "." Identifier
-sub_sql ::= "@" Identifier "(" [param_list] ")"
-param_list ::= param_item { "," param_item }
-param_item ::= Identifier ["=" param_value]
-param_value ::= expr | sub_sql
+     * @code{.ebnf}
+     * sql ::= [NormalText] {(sub_sql|print_expr|if_stmt) [NormalText]}
+     * print_expr ::= "$" "{" expr "}"
+     * expr ::= 'null' | Integer | String | Identifier {param_suffix}
+     * param_suffix ::= "[" expr "]" | "." Identifier
+     * sub_sql ::= "@" Identifier "(" [param_list] ")"
+     * param_list ::= param_item { "," param_item }
+     * param_item ::= Identifier ["=" param_value]
+     * param_value ::= expr | sub_sql
+     * if_stmt ::= "@" "if" "(" bool_expr ")" sql
+     *            {"@" "elif" "(" bool_expr ")" sql}
+     *            ["@" "else" sql]
+     *             "@" "endif"
+     * bool_expr ::= term {("or"|"||") term}
+     * term ::= factor {("and"|"&&") factor}
+     * factor ::= ["!"|"not"] ("(" bool_expr ")" | expr)
+     * comp_expr ::= expr [("=="|"!=") expr]
 
-// Regular expressions to express basic tokens.
-NormalText ::= [^@$]*
-Identifier ::= [a-zA-Z0x80-0xff_][a-zA-Z0-90x80-0xff_]*
-Integer ::= [1-9]\d*|0     // remove prefix '0'
-String ::= "[^"]*" | '[^']*'
+     * // Regular expressions to express basic tokens.
+     * NormalText ::= [^@$]*
+     * Identifier ::= [a-zA-Z0x80-0xff_][a-zA-Z0-90x80-0xff_]*
+     * Integer ::= [1-9]\d*|0     // remove prefix '0'
+     * String ::= "[^"]*"|'[^']*'
      * @endcode
+	 *
+     * @date 2025-02-03
+     * @since 0.0.1
      * @return The final SQL statement with parameters substituted and sub-SQL
      * statements included.
      */
@@ -277,13 +399,23 @@ String ::= "[^"]*" | '[^']*'
 
     ParamItem paramValue();
 
+    std::string ifStmt();
+
+    bool boolExpr();
+
+    bool term();
+
+    bool factor();
+
+    bool compExpr();
+
     std::string match(TokenType);
 
     /**
      * @brief Retrieves the value of a parameter by name. If the parameter is
-     * not found, an empty string is returned.
+     * not found, an std::nullopt is returned.
      * @param paramName The name of the parameter to retrieve.
-     * @return The value of the parameter, or an empty string.
+     * @return The value of the parameter, or an std::nullopt.
      */
     ParamItem getParamByName(const std::string& paramName) const;
 
@@ -302,7 +434,7 @@ String ::= "[^"]*" | '[^']*'
  * Inherits from `drogon::Plugin<SqlGenerator>`.
  *
  * @author tanglong3bf
- * @date 2025-01-17
+ * @date 2025-02-03
  * @since 0.0.1
  */
 class SqlGenerator : public drogon::Plugin<SqlGenerator>
@@ -316,6 +448,49 @@ class SqlGenerator : public drogon::Plugin<SqlGenerator>
     /// It must be implemented by the user..
     void shutdown()
     {
+    }
+
+    /**
+     * @brief Only print the tokens of a SQL statement.
+     * @param name The name of the SQL statement to print.
+     * @param subSqlName The name of the sub-SQL statement to print (default is
+     * "main").
+     * @date 2025-02-03
+     * @since 0.5.0
+     */
+    void printTokens(const std::string& name,
+                     const std::string& subSqlName = "main")
+    {
+        std::cout << "Tokens for " << name << ":\n";
+        if (parsers_.find(name) == parsers_.end())
+        {
+            parsers_.emplace(name, std::unordered_map<std::string, Parser>());
+        }
+
+        if (parsers_[name].find(subSqlName) == parsers_[name].end())
+        {
+            if (sqls_[name][subSqlName].isString())
+            {
+                parsers_[name].emplace(subSqlName,
+                                       Parser(
+                                           sqls_[name][subSqlName].asString()));
+            }
+            else if (sqls_[name][subSqlName].isObject() &&
+                     sqls_[name][subSqlName].isMember("sql") &&
+                     sqls_[name][subSqlName]["sql"].isString())
+            {
+                parsers_[name].emplace(
+                    subSqlName,
+                    Parser(sqls_[name][subSqlName]["sql"].asString()));
+            }
+            else
+            {
+                std::cout << "Invalid SQL statement for " << name << ":"
+                          << subSqlName << std::endl;
+                return;
+            }
+        }
+        parsers_[name].at(subSqlName).printTokens();
     }
 
     /**

@@ -122,5 +122,9 @@ The SQL statements are defined using a specific syntax:
 
 - Parameter Substitution: Use `$paramName` to substitute parameters.
 - Sub-SQL Inclusion: Use `@subSqlName(param1=value1, param2=value2)` to include sub-SQL statements with parameters.
+  - `subSqlName(param)` is a shorthand for `@subSqlName(param = param)`.
+- Conditional Statement: use `@if(condition1) true_statement1 @elif(condition2) true_statement2 @else false_statement @endif` for conditional statements.
+  - Conditional expressions can use `and`, `or`, `not`, `&&`, `||`, `!`, `(`, `)`, `==`, `!=` operators.
+  - Conditional expressions can check for null values using `param == null`, which can be simplified to `param`.
 
 This document provides a basic overview of how to use the `SqlGenerator` plugin to dynamically generate SQL statements with parameter substitution and sub-SQL inclusion.

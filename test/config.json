@@ -65,6 +65,17 @@
 				}
 			},
 			"user_value": "'${user.name}', '${user['address'][0]}省${user.address[1]}市'"
+		},
+		"if_else_test": {
+			"main": {
+				"sql": "SELECT * FROM blog WHERE state = 'ACTIVE' @if(title != null) AND title LIKE '%${title}%' @elif(author and author.name) AND author_name LIKE '%${author.name}%' @else AND 1 = 1 @endif",
+				"params": {
+					// "title": "标题",
+					"author": {
+						"name": "张三"
+					}
+				}
+			}
 		}
 	}
 }
