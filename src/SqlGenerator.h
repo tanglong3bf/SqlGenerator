@@ -25,8 +25,8 @@
  * for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-02-03
- * @version 0.5.0
+ * @date 2025-02-05
+ * @version 0.5.1
  *
  * This header file contains the declarations for the SqlGenerator library,
  * including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -50,7 +50,7 @@ namespace tl::sql
 /**
  * @enum TokenType
  * @brief Enumeration defining the types of tokens used in SQL generation.
- * @date 2025-02-03
+ * @date 2025-02-05
  * @since 0.0.1
  */
 enum TokenType
@@ -59,7 +59,7 @@ enum TokenType
     At,          ///< '@'
     Identifier,  ///< An identifier, such as a sub sql name or param name.
     LParen,      ///< '('
-    ASSIGN,      ///< '='
+    Assign,      ///< '='
     String,      ///< A string parameter value.
     Integer,     ///< An integer parameter value.
     Comma,       ///< ','
@@ -76,27 +76,29 @@ enum TokenType
     Not,         ///< 'not', '!'
     EQ,          ///< '=='
     NEQ,         ///< '!=',
+    Null,        ///< 'null'
     Else,        ///< 'else'
     ElIf,        ///< 'elif'
     EndIf,       ///< 'endif'
-    ForEach,     ///< 'foreach'
+    For,         ///< 'for'
     In,          ///< 'in'
-    Null,        ///< 'null'
-    EndForEach,  ///< 'endforeach'
+    EndFor,      ///< 'endfor'
+    Done,        ///< All token is processed.
     Unknown      ///< An unknown token type.
 };
 
 #define TOKEN_TYPE_CASE(type) \
     case type:                \
-        os << #type;          \
-        break
+        return #type
 
 /**
- * @brief Outputs the name of a TokenType to an output stream.
- * @date 2025-02-03
- * @since 0.5.0
+ * @brief Translates a TokenType to a string.
+ * @param type The TokenType to be translated.
+ * @return A string representation of the TokenType.
+ * @date 2025-02-05
+ * @since 0.5.1
  */
-inline std::ostream& operator<<(std::ostream& os, const TokenType& type)
+inline std::string to_string(TokenType type)
 {
     switch (type)
     {
@@ -104,7 +106,7 @@ inline std::ostream& operator<<(std::ostream& os, const TokenType& type)
         TOKEN_TYPE_CASE(At);
         TOKEN_TYPE_CASE(Identifier);
         TOKEN_TYPE_CASE(LParen);
-        TOKEN_TYPE_CASE(ASSIGN);
+        TOKEN_TYPE_CASE(Assign);
         TOKEN_TYPE_CASE(String);
         TOKEN_TYPE_CASE(Integer);
         TOKEN_TYPE_CASE(Comma);
@@ -124,16 +126,27 @@ inline std::ostream& operator<<(std::ostream& os, const TokenType& type)
         TOKEN_TYPE_CASE(Else);
         TOKEN_TYPE_CASE(ElIf);
         TOKEN_TYPE_CASE(EndIf);
-        TOKEN_TYPE_CASE(ForEach);
+        TOKEN_TYPE_CASE(For);
         TOKEN_TYPE_CASE(In);
         TOKEN_TYPE_CASE(Null);
-        TOKEN_TYPE_CASE(EndForEach);
+        TOKEN_TYPE_CASE(EndFor);
+        TOKEN_TYPE_CASE(Done);
         TOKEN_TYPE_CASE(Unknown);
     }
-    return os;
 }
 
 #undef TOKEN_TYPE_CASE
+
+/**
+ * @brief Outputs the name of a TokenType to an output stream.
+ * @date 2025-02-05
+ * @since 0.5.0
+ */
+inline std::ostream& operator<<(std::ostream& os, const TokenType& type)
+{
+    os << to_string(type);
+    return os;
+}
 
 /**
  * @class Token
@@ -194,7 +207,7 @@ class Token
  * @brief Breaks down the SQL statement into tokens.
  *
  * @author tanglong3bf
- * @date 2025-02-03
+ * @date 2025-02-05
  * @since 0.0.1
  */
 class Lexer
@@ -221,6 +234,7 @@ class Lexer
     /**
      * @brief Returns the next token in the SQL statement.
      * @return The next token.
+     * @date 2025-02-05
      */
     Token next();
 
@@ -232,26 +246,6 @@ class Lexer
     bool done()
     {
         return pos_ == sql_.size();
-    }
-
-    /**
-     * @brief This function is used to backtrack to the previous `@`
-     * @date 2025-02-03
-     * @since 0.5.0
-     * @see Lexer::next()
-     */
-    void rollback()
-    {
-        if (rollbackPos_.empty())
-        {
-            pos_ = 0;
-        }
-        else
-        {
-            pos_ = rollbackPos_.top();
-            rollbackPos_.pop();
-        }
-        parenDepth_ = 0;
     }
 
   private:
@@ -272,7 +266,7 @@ using ParamItem =
  * @brief Processes tokens to generate the final SQL statement.
  *
  * @author tanglong3bf
- * @date 2025-02-03
+ * @date 2025-02-05
  * @since 0.0.1
  */
 class Parser
@@ -290,34 +284,40 @@ class Parser
 
     /**
      * @brief This function is used to print the tokens of the SQL statement.
-     * @date 2025-02-03
+     * @date 2025-02-05
      * @since 0.5.0
      */
     void printTokens()
     {
         auto printToken = [](const Token& token) {
-            std::cout << "[" << token.type() << "]";
-            if (token.value() != "")
+            if (token.type() != Done)
             {
-                std::cout << "<" << token.value() << ">";
+                std::cout << "[" << token.type() << "]";
+                if (token.value() != "")
+                {
+                    std::cout << "<" << token.value() << ">";
+                }
+                std::cout << std::endl;
             }
-            std::cout << std::endl;
         };
-        while (!lexer_.done())
+        for (; !lexer_.done(); nextToken())
         {
-            printToken(ahead_);
-            ahead_ = lexer_.next();
+            printToken(ahead_.front());
         }
-        printToken(ahead_);
+        printToken(ahead_.front());
+        printToken(ahead_.back());
     }
 
     /**
      * @brief Resets the Parser to the beginning of the SQL statement.
+     * @date 2025-02-05
      */
     void reset()
     {
         lexer_.reset();
-        ahead_ = lexer_.next();
+        ahead_.clear();
+        ahead_.emplace_back(lexer_.next());
+        ahead_.emplace_back(lexer_.next());
     }
 
     /**
@@ -374,7 +374,7 @@ class Parser
      * String ::= "[^"]*"|'[^']*'
      * @endcode
 	 *
-     * @date 2025-02-03
+     * @date 2025-02-05
      * @since 0.0.1
      * @return The final SQL statement with parameters substituted and sub-SQL
      * statements included.
@@ -412,6 +412,12 @@ class Parser
     std::string match(TokenType);
 
     /**
+     * @date 2025-02-05
+     * @since 0.5.1
+     */
+    void nextToken();
+
+    /**
      * @brief Retrieves the value of a parameter by name. If the parameter is
      * not found, an std::nullopt is returned.
      * @param paramName The name of the parameter to retrieve.
@@ -423,9 +429,9 @@ class Parser
     ParamList params_;  ///< Map of parameter names and their values.
     std::function<std::string(const std::string&,
                               const ParamList&)>
-        subSqlGetter_;  ///< Function to retrieve sub-SQL statements.
-    Lexer lexer_;       ///< Lexer used to tokenize the SQL statement.
-    Token ahead_;       ///< The next token to be processed.
+        subSqlGetter_;         ///< Function to retrieve sub-SQL statements.
+    Lexer lexer_;              ///< Lexer used to tokenize the SQL statement.
+    std::deque<Token> ahead_;  ///< The next token to be processed.
 };
 
 /**

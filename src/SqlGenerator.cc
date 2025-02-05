@@ -4,8 +4,8 @@
  * framework for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-02-03
- * @version 0.5.0
+ * @date 2025-02-05
+ * @version 0.5.1
  *
  * This implementation file contains the definitions for the SqlGenerator
  * library, including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -24,7 +24,7 @@ Token Lexer::next()
 {
     if (done())
     {
-        return {Unknown};
+        return {Done};
     }
     static const unordered_map<char, TokenType> tokenMap = {
         {'(', LParen},
@@ -46,7 +46,7 @@ Token Lexer::next()
         {"else", Else},
         {"elif", ElIf},
         {"endif", EndIf},
-        {"foreach", ForEach},
+        {"for", For},
         {"in", In},
         {"null", Null},
     };
@@ -126,7 +126,7 @@ Token Lexer::next()
         else
         {
             ++pos_;
-            return {ASSIGN};
+            return {Assign};
         }
     }
     // &&
@@ -197,7 +197,7 @@ Token Lexer::next()
         }
     }
 
-    throw runtime_error("Invalid expression(" + to_string(pos_) +
+    throw runtime_error("Invalid expression(" + std::to_string(pos_) +
                         "): " + sql_.substr(pos_));
 }
 
@@ -214,35 +214,28 @@ string Parser::parse()
 string Parser::sql()
 {
     string result;
-    if (ahead_.type() == NormalText)
+    if (ahead_[0].type() == NormalText)
     {
         result += match(NormalText);
     }
     while (true)
     {
-        if (ahead_.type() == At)
+        if (ahead_[0].type() == At)
         {
-            try
+            if (ahead_[1].type() == Identifier)
             {
                 result += subSql();
             }
-            catch (const runtime_error &ignore)
+            else if (ahead_[1].type() == If)
             {
-                lexer_.rollback();
-                ahead_ = lexer_.next();
-                try
-                {
-                    result += ifStmt();
-                }
-                catch (const runtime_error &ignore)
-                {
-                    lexer_.rollback();
-                    ahead_ = lexer_.next();
-                    return result;
-                }
+                result += ifStmt();
+            }
+            else
+            {
+                return result;
             }
         }
-        else if (ahead_.type() == Dollar)
+        else if (ahead_[0].type() == Dollar)
         {
             result += printExpr();
         }
@@ -250,7 +243,7 @@ string Parser::sql()
         {
             return result;
         }
-        if (ahead_.type() == NormalText)
+        if (ahead_[0].type() == NormalText)
         {
             result += match(NormalText);
         }
@@ -270,7 +263,7 @@ string Parser::printExpr()
     }
     else if (holds_alternative<int32_t>(*result))
     {
-        return to_string(get<int32_t>(*result));
+        return std::to_string(get<int32_t>(*result));
     }
     else if (holds_alternative<string>(*result))
     {
@@ -283,24 +276,24 @@ string Parser::printExpr()
 // expr ::= 'null' | Integer | String | Identifier {param_suffix}
 ParamItem Parser::expr()
 {
-    if (ahead_.type() == Null)
+    if (ahead_[0].type() == Null)
     {
         match(Null);
         return nullopt;
     }
-    else if (ahead_.type() == Integer)
+    else if (ahead_[0].type() == Integer)
     {
         return fromString<int32_t>(match(Integer));
     }
-    else if (ahead_.type() == String)
+    else if (ahead_[0].type() == String)
     {
         return match(String);
     }
-    else if (ahead_.type() == Identifier)
+    else if (ahead_[0].type() == Identifier)
     {
         auto paramName = match(Identifier);
         auto paramValue = getParamByName(paramName);
-        while (ahead_.type() == Dot || ahead_.type() == LBracket)
+        while (ahead_[0].type() == Dot || ahead_[0].type() == LBracket)
         {
             paramSuffix(paramValue);
         }
@@ -330,13 +323,14 @@ ParamItem Parser::expr()
             return json;
         }
     }
-    throw runtime_error("Invalid expression. Empty expression.");
+    throw runtime_error("Invalid expression. Unexpected token: " +
+                        to_string(ahead_[0].type()));
 }
 
 // param_suffix ::= "[" expr "]" | "." Identifier
 void Parser::paramSuffix(ParamItem &param)
 {
-    if (ahead_.type() == LBracket)
+    if (ahead_[0].type() == LBracket)
     {
         match(LBracket);
         auto index = expr();
@@ -371,7 +365,7 @@ void Parser::paramSuffix(ParamItem &param)
             param = json[indexStr];
         }
     }
-    else if (ahead_.type() == Dot)
+    else if (ahead_[0].type() == Dot)
     {
         match(Dot);
         auto memberName = match(Identifier);
@@ -395,7 +389,7 @@ string Parser::subSql()
     auto subSqlName = match(Identifier);
     match(LParen);
     ParamList params = {};
-    if (ahead_.type() == Identifier)
+    if (ahead_[0].type() == Identifier)
     {
         params = paramList();
     }
@@ -410,7 +404,7 @@ ParamList Parser::paramList()
     result.emplace(paramItem());
     while (true)
     {
-        if (ahead_.type() == Comma)
+        if (ahead_[0].type() == Comma)
         {
             match(Comma);
             result.emplace(paramItem());
@@ -427,9 +421,9 @@ ParamList::value_type Parser::paramItem()
 {
     auto paramName = match(Identifier);
     ParamItem param;
-    if (ahead_.type() == ASSIGN)
+    if (ahead_[0].type() == Assign)
     {
-        match(ASSIGN);
+        match(Assign);
         param = paramValue();
     }
     else
@@ -451,7 +445,7 @@ ParamList::value_type Parser::paramItem()
 // param_value ::= expr | sub_sql
 ParamItem Parser::paramValue()
 {
-    if (ahead_.type() == At)
+    if (ahead_[0].type() == At)
     {
         return subSql();
     }
@@ -464,7 +458,7 @@ ParamItem Parser::paramValue()
         }
         else if (holds_alternative<int32_t>(*result))
         {
-            return to_string(get<int32_t>(*result));
+            return std::to_string(get<int32_t>(*result));
         }
         else if (holds_alternative<string>(*result))
         {
@@ -475,7 +469,6 @@ ParamItem Parser::paramValue()
             return get<Json::Value>(*result);
         }
     }
-    throw runtime_error("Invalid expression. Empty parameter value.");
 }
 
 // if_stmt ::= "@" "if" "(" bool_expr ")" sql
@@ -497,9 +490,9 @@ string Parser::ifStmt()
     }
     while (true)
     {
-        match(At);
-        if (ahead_.type() == ElIf)
+        if (ahead_[0].type() == At && ahead_[1].type() == ElIf)
         {
+            match(At);
             match(ElIf);
             match(LParen);
             auto elIfCondition = boolExpr();
@@ -513,27 +506,17 @@ string Parser::ifStmt()
         }
         else
         {
-            lexer_.rollback();
-            ahead_ = lexer_.next();
             break;
         }
     }
-    if (ahead_.type() == At)
+    if (ahead_[0].type() == At && ahead_[1].type() == Else)
     {
         match(At);
-        if (ahead_.type() == Else)
+        match(Else);
+        auto sqlStmt = sql();
+        if (!condition)
         {
-            match(Else);
-            auto sqlStmt = sql();
-            if (!condition)
-            {
-                result += sqlStmt;
-            }
-        }
-        else
-        {
-            lexer_.rollback();
-            ahead_ = lexer_.next();
+            result += sqlStmt;
         }
     }
     match(At);
@@ -547,7 +530,7 @@ bool Parser::boolExpr()
     auto result = term();
     while (true)
     {
-        if (ahead_.type() == Or)
+        if (ahead_[0].type() == Or)
         {
             match(Or);
             result = term() || result;
@@ -566,7 +549,7 @@ bool Parser::term()
     auto result = factor();
     while (true)
     {
-        if (ahead_.type() == And)
+        if (ahead_[0].type() == And)
         {
             match(And);
             result = factor() && result;
@@ -583,12 +566,12 @@ bool Parser::term()
 bool Parser::factor()
 {
     auto isNegated = false;
-    if (ahead_.type() == Not)
+    if (ahead_[0].type() == Not)
     {
         match(Not);
         isNegated = true;
     }
-    if (ahead_.type() == LParen)
+    if (ahead_[0].type() == LParen)
     {
         match(LParen);
         auto result = boolExpr();
@@ -604,13 +587,13 @@ bool Parser::compExpr()
     auto result1 = expr();
     ParamItem result2;
     bool isEqual;
-    if (ahead_.type() == EQ)
+    if (ahead_[0].type() == EQ)
     {
         match(EQ);
         result2 = expr();
         isEqual = true;
     }
-    else if (ahead_.type() == NEQ)
+    else if (ahead_[0].type() == NEQ)
     {
         match(NEQ);
         result2 = expr();
@@ -660,13 +643,16 @@ bool Parser::compExpr()
 
 string Parser::match(TokenType type)
 {
-    if (ahead_.type() != type)
-    {
-        throw runtime_error("Invalid expression. Maybe need rollback");
-    }
-    auto value = ahead_.value();
-    ahead_ = lexer_.next();
+    assert(ahead_[0].type() == type);
+    auto value = ahead_[0].value();
+    nextToken();
     return value;
+}
+
+void Parser::nextToken()
+{
+    ahead_.pop_front();
+    ahead_.emplace_back(lexer_.next());
 }
 
 ParamItem Parser::getParamByName(const string &paramName) const
@@ -674,6 +660,7 @@ ParamItem Parser::getParamByName(const string &paramName) const
     auto it = params_.find(paramName);
     if (it == params_.end())
     {
+        LOG_ERROR << "parameter \"" << paramName << "\" not found";
         return nullopt;
     }
     if (holds_alternative<string>(it->second))
