@@ -31,44 +31,48 @@ int main()
     SqlGenerator sqlGenerator;
     sqlGenerator.initAndStart(config);
 
-    auto sql = sqlGenerator.getSql("count_user");
-    cout << "count_user: " << sql << endl;
+    auto printTokens = [&sqlGenerator](const std::string& name,
+                                       const string& subSqlName = "main") {
+        sqlGenerator.printTokens(name, subSqlName);
+    };
 
-    sql = sqlGenerator.getSql("get_user_by_id", {{"user_id", 1}});
-    cout << "get_user_by_id: " << sql << endl;
+    auto printAST = [&sqlGenerator](const std::string& name,
+                                    const string& subSqlName = "main") {
+        sqlGenerator.printAST(name, subSqlName);
+    };
 
-    sql = sqlGenerator.getSql("get_user_paginated",
-                              {{"limit", 10}, {"offset", 300}});
-    cout << "get_user_paginated: " << sql << endl;
+    auto getSqlAndPrint = [&sqlGenerator](const std::string& name,
+                                          const ParamList& param = {}) {
+        auto sql = sqlGenerator.getSql(name, param);
+        std::cout << "SQL of " << name << ": " << std::endl;
+        std::cout << "\033[92m" << sql << "\033[0m" << std::endl;
+    };
 
-    sql =
-        sqlGenerator.getSql("insert_user", {{"username", string("zhangsan")}});
-    cout << "insert_user: " << sql << endl;
+    getSqlAndPrint("count_user");
 
-    sql = sqlGenerator.getSql("get_height_more_than_avg");
-    cout << "get_height_more_than_avg: " << sql << endl;
+    getSqlAndPrint("get_user_by_id");
 
-    sql = sqlGenerator.getSql("sub_sql_param", {{"param", string("param")}});
-    cout << "sub_sql_param: " << sql << endl;
+    getSqlAndPrint("get_user_paginated", {{"limit", 10}, {"offset", 300}});
 
-    sql = sqlGenerator.getSql("deep_param", {{"param", string("param")}});
-    cout << "deep_param: " << sql << endl;
+    getSqlAndPrint("insert_user", {{"username", string("zhangsan")}});
 
-    sql = sqlGenerator.getSql("ignore_param",
-                              {{"param", string("ignore_param")}});
-    cout << "ignore_param: " << sql << endl;
+    getSqlAndPrint("get_height_more_than_avg");
+
+    getSqlAndPrint("sub_sql_param", {{"param", string("param")}});
+
+    getSqlAndPrint("deep_param", {{"param", string("param")}});
+
+    getSqlAndPrint("ignore_param", {{"param", string("ignore_param")}});
 
     Json::Value param;
     param["province"] = "hlj";
     param["city"] = "sfh";
-    sql = sqlGenerator.getSql("object_param", {{"address", param}});
-    cout << "object_param: " << sql << endl;
+    getSqlAndPrint("object_param", {{"address", param}});
 
     Json::Value param2;
     param2[0] = "hlj";
     param2[1] = "sfh";
-    sql = sqlGenerator.getSql("array_param", {{"address", param2}});
-    cout << "array_param: " << sql << endl;
+    getSqlAndPrint("array_param", {{"address", param2}});
 
     Json::Value param3;
     param3[0]["name"] = "zhangsan";
@@ -77,8 +81,7 @@ int main()
     param3[1]["name"] = "lisi";
     param3[1]["address"]["province"] = "hlj";
     param3[1]["address"]["city"] = "mdj";
-    sql = sqlGenerator.getSql("array_object_param", {{"users", param3}});
-    cout << "array_object_param: " << sql << endl;
+    getSqlAndPrint("array_object_param", {{"users", param3}});
 
     Json::Value param4;
     param4[0]["name"] = "张三";
@@ -86,14 +89,12 @@ int main()
     param4[0]["address"][1] = "绥芬河";
     param4[1]["name"] = "李四";
     param4[1]["address"][0] = "黑龙江";
-    param4[1]["address"][1] = "八面通";
-    sql = sqlGenerator.getSql("array_object_param_with_array_param",
-                              {{"users", param4}});
-    cout << "array_object_param_with_array_param: " << sql << endl;
+    param4[1]["address"][1] = "牡丹江";
+    getSqlAndPrint("array_object_param_with_array_param", {{"users", param4}});
 
-    sqlGenerator.printTokens("if_else_test");
-    sql = sqlGenerator.getSql("if_else_test");
-    cout << "if_else_test: " << sql << endl;
+    printTokens("if_else_test");
+    printAST("if_else_test");
+    getSqlAndPrint("if_else_test");
 
     return 0;
 }

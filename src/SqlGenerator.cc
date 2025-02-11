@@ -4,8 +4,8 @@
  * framework for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-02-05
- * @version 0.5.1
+ * @date 2025-02-11
+ * @version 0.5.2
  *
  * This implementation file contains the definitions for the SqlGenerator
  * library, including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -201,22 +201,341 @@ Token Lexer::next()
                         "): " + sql_.substr(pos_));
 }
 
+bool tl::sql::toBool(const ParamItem &value)
+{
+    if (!value)
+    {
+        return false;
+    }
+    if (holds_alternative<int32_t>(*value))
+    {
+        return get<int32_t>(*value) != 0;
+    }
+    else if (holds_alternative<string>(*value))
+    {
+        return get<string>(*value) != "";
+    }
+    // Json::Value
+    return true;
+}
+
+string ASTNode::generateSql(const ParamList &params) const
+{
+    auto value = getValue(params);
+    string result;
+    if (value)
+    {
+        if (holds_alternative<string>(*value))
+        {
+            result = get<string>(*value);
+        }
+        else if (holds_alternative<int32_t>(*value))
+        {
+            result = std::to_string(get<int32_t>(*value));
+        }
+        // JSon::Value (objectValue or arrayValue) is not supported to be
+        // converted to string
+    }
+    if (nextSibling_)
+    {
+        result += nextSibling_->generateSql(params);
+    }
+    return result;
+}
+
+void ASTNode::print(const string &indent) const
+{
+    cout << indent << "\033[31m"
+         << "[Not implemented]"
+         << "\033[0m" << endl;
+}
+
+ParamItem VariableNode::getValue(const ParamList &params) const
+{
+    if (params.count(name_) == 0)
+    {
+        return nullopt;
+    }
+    auto value = params.at(name_);
+    if (holds_alternative<int32_t>(value))
+    {
+        return get<int32_t>(value);
+    }
+    else if (holds_alternative<string>(value))
+    {
+        return get<string>(value);
+    }
+    else  // Json::Value
+    {
+        return get<Json::Value>(value);
+    }
+}
+
+ParamItem MemberNode::getValue(const ParamList &params) const
+{
+    auto value = left_->getValue(params);
+    if (value && holds_alternative<Json::Value>(*value))
+    {
+        auto json = get<Json::Value>(*value);
+        auto memberName = get<string>(*right_->getValue());
+        if (json.isObject() && json.isMember(memberName))
+        {
+            auto result = json[memberName];
+            if (result.isInt())
+            {
+                return result.asInt();
+            }
+            else if (result.isString())
+            {
+                return result.asString();
+            }
+            else  // object or array
+            {
+                return result;
+            }
+        }
+    }
+    return nullopt;
+}
+
+ParamItem ArrayNode::getValue(const ParamList &params) const
+{
+    auto value = left_->getValue(params);
+    if (value && holds_alternative<Json::Value>(*value))
+    {
+        auto json = get<Json::Value>(*value);
+        Json::Value result;
+        auto rightValue = right_->getValue(params);
+        if (holds_alternative<int32_t>(*rightValue))
+        {
+            auto index = get<int32_t>(*rightValue);
+            if (json.isArray() && index >= 0 &&
+                index < static_cast<int>(json.size()))
+            {
+                result = json[index];
+            }
+        }
+        else if (holds_alternative<string>(*rightValue))
+        {
+            auto memberName = get<string>(*rightValue);
+            if (json.isObject() && json.isMember(memberName))
+            {
+                result = json[memberName];
+            }
+        }
+        if (result.isInt())
+        {
+            return result.asInt();
+        }
+        else if (result.isString())
+        {
+            return result.asString();
+        }
+        else  // object or array
+        {
+            return result;
+        }
+    }
+    return nullopt;
+}
+
+ParamItem SubSqlNode::getValue(const ParamList &params) const
+{
+    ParamList subParams;
+    for (const auto &param : params_)
+    {
+        auto paramValue = param.second->getValue(params);
+        if (paramValue)
+        {
+            subParams.emplace(param.first, *paramValue);
+        }
+        else
+        {
+            LOG_ERROR << "Parameter " << param.first << " not found";
+        }
+    }
+    return subSqlGetter_(name_, subParams);
+}
+
+ParamItem AndNode::getValue(const ParamList &params) const
+{
+    auto leftValue = left_->getValue(params);
+    auto rightValue = right_->getValue(params);
+    if (!toBool(leftValue))
+    {
+        return 0;  // false
+    }
+    return toBool(rightValue);
+}
+
+ParamItem OrNode::getValue(const ParamList &params) const
+{
+    auto leftValue = left_->getValue(params);
+    auto rightValue = right_->getValue(params);
+    if (toBool(leftValue))
+    {
+        return 1;  // true
+    }
+    return toBool(rightValue);
+}
+
+ParamItem EQNode::getValue(const ParamList &params) const
+{
+    auto leftValue = left_->getValue(params);
+    auto rightValue = right_->getValue(params);
+    if (!leftValue && !rightValue)
+    {
+        return 1;  // true
+    }
+    if (!leftValue || !rightValue)
+    {
+        return 0;  // false
+    }
+    if (holds_alternative<int32_t>(*leftValue) &&
+        holds_alternative<int32_t>(*rightValue))
+    {
+        return get<int32_t>(*leftValue) == get<int32_t>(*rightValue);
+    }
+    else if (holds_alternative<string>(*leftValue) &&
+             holds_alternative<string>(*rightValue))
+    {
+        return get<string>(*leftValue) == get<string>(*rightValue);
+    }
+    else if (holds_alternative<Json::Value>(*leftValue) &&
+             holds_alternative<Json::Value>(*rightValue))
+    {
+        return get<Json::Value>(*leftValue) == get<Json::Value>(*rightValue);
+    }
+    return 0;  // false
+}
+
+ParamItem NEQNode::getValue(const ParamList &params) const
+{
+    auto leftValue = left_->getValue(params);
+    auto rightValue = right_->getValue(params);
+    if (!leftValue && !rightValue)
+    {
+        return 0;  // false
+    }
+    if (!leftValue || !rightValue)
+    {
+        return 1;  // true
+    }
+    if (holds_alternative<int32_t>(*leftValue) &&
+        holds_alternative<int32_t>(*rightValue))
+    {
+        return get<int32_t>(*leftValue) != get<int32_t>(*rightValue);
+    }
+    else if (holds_alternative<string>(*leftValue) &&
+             holds_alternative<string>(*rightValue))
+    {
+        return get<string>(*leftValue) != get<string>(*rightValue);
+    }
+    else if (holds_alternative<Json::Value>(*leftValue) &&
+             holds_alternative<Json::Value>(*rightValue))
+    {
+        return get<Json::Value>(*leftValue) != get<Json::Value>(*rightValue);
+    }
+    return 1;  // true
+}
+
+ParamItem IfStmtNode::getValue(const ParamList &params) const
+{
+    auto condition = condition_->getValue(params);
+    if (toBool(condition))
+    {
+        return ifStmt_->generateSql(params);
+    }
+    for (const auto &elseIfStmt : elIfStmts_)
+    {
+        auto elseIfCondition = elseIfStmt.first->getValue(params);
+        if (toBool(elseIfCondition))
+        {
+            return elseIfStmt.second->generateSql(params);
+        }
+    }
+    if (elseStmt_)
+    {
+        return elseStmt_->generateSql(params);
+    }
+    return nullopt;
+}
+
+void Parser::printTokens()
+{
+    reset();
+    auto printToken = [](const Token &token) {
+        if (token.type() != Done)
+        {
+            cout << "\033[36m"
+                 << "[" << token.type() << "]";
+            if (token.value() != "")
+            {
+                cout << "<" << token.value() << ">";
+            }
+            cout << "\033[0m" << endl;
+        }
+    };
+    for (; !lexer_.done(); nextToken())
+    {
+        printToken(ahead_.front());
+    }
+    printToken(ahead_.front());
+    printToken(ahead_.back());
+}
+
+void Parser::printAST()
+{
+    reset();
+    if (!root_)
+    {
+        root_ = sql();
+        if (!lexer_.done())
+        {
+            throw runtime_error("Invalid expression.");
+        }
+    }
+    cout << "\033[37m"
+         << "[root]"
+         << "\033[0m" << endl;
+    root_->print("└── ");
+}
+
 string Parser::parse()
 {
     reset();
-    auto result = sql();
-    if (lexer_.done())
-        return result;
-    throw runtime_error("Invalid expression.");
+    if (!root_)
+    {
+        root_ = sql();
+        if (!lexer_.done())
+        {
+            throw runtime_error("Invalid expression.");
+        }
+    }
+    return root_->generateSql(params_);
 }
 
 // sql ::= [NormalText] {(sub_sql|print_expr|if_stmt) [NormalText]}
-string Parser::sql()
+ASTNodePtr Parser::sql()
 {
-    string result;
+    ASTNodePtr head;
+    ASTNodePtr tail;
+    auto addNode = [&](const ASTNodePtr &node) {
+        if (head)
+        {
+            tail->setNextSibling(node);
+            tail = node;
+        }
+        else
+        {
+            head = tail = node;
+        }
+    };
     if (ahead_[0].type() == NormalText)
     {
-        result += match(NormalText);
+        auto normalText = match(NormalText);
+        auto normalTextNode = make_shared<NormalTextNode>(normalText);
+        addNode(normalTextNode);
     }
     while (true)
     {
@@ -224,183 +543,113 @@ string Parser::sql()
         {
             if (ahead_[1].type() == Identifier)
             {
-                result += subSql();
+                addNode(subSql());
             }
             else if (ahead_[1].type() == If)
             {
-                result += ifStmt();
+                addNode(ifStmt());
             }
             else
             {
-                return result;
+                return head;
             }
         }
         else if (ahead_[0].type() == Dollar)
         {
-            result += printExpr();
+            addNode(printExpr());
         }
         else
         {
-            return result;
+            return head;
         }
         if (ahead_[0].type() == NormalText)
         {
-            result += match(NormalText);
+            auto normalText = match(NormalText);
+            auto normalTextNode = make_shared<NormalTextNode>(normalText);
+            addNode(normalTextNode);
         }
     }
 }
 
 // print_expr ::= "$" "{" expr "}"
-string Parser::printExpr()
+ASTNodePtr Parser::printExpr()
 {
     match(Dollar);
     match(LBrace);
     auto result = expr();
     match(RBrace);
-    if (!result)
-    {
-        return "";
-    }
-    else if (holds_alternative<int32_t>(*result))
-    {
-        return std::to_string(get<int32_t>(*result));
-    }
-    else if (holds_alternative<string>(*result))
-    {
-        return get<string>(*result);
-    }
-    LOG_ERROR << "json format not supported yet.";
-    return "";
+    return result;
 }
 
 // expr ::= 'null' | Integer | String | Identifier {param_suffix}
-ParamItem Parser::expr()
+ASTNodePtr Parser::expr()
 {
     if (ahead_[0].type() == Null)
     {
         match(Null);
-        return nullopt;
+        return make_shared<NullNode>();
     }
     else if (ahead_[0].type() == Integer)
     {
-        return fromString<int32_t>(match(Integer));
+        auto integer = fromString<int32_t>(match(Integer));
+        return make_shared<NumberNode>(integer);
     }
     else if (ahead_[0].type() == String)
     {
-        return match(String);
+        return make_shared<StringNode>(match(String));
     }
     else if (ahead_[0].type() == Identifier)
     {
         auto paramName = match(Identifier);
-        auto paramValue = getParamByName(paramName);
+        ASTNodePtr variableNode = make_shared<VariableNode>(paramName);
         while (ahead_[0].type() == Dot || ahead_[0].type() == LBracket)
         {
-            paramSuffix(paramValue);
+            paramSuffix(variableNode);
         }
-        if (!paramValue)
-        {
-            return nullopt;
-        }
-        else if (holds_alternative<string>(*paramValue))
-        {
-            return get<string>(*paramValue);
-        }
-        else if (holds_alternative<int32_t>(*paramValue))
-        {
-            return get<int32_t>(*paramValue);
-        }
-        else  // Json::Value
-        {
-            auto json = get<Json::Value>(*paramValue);
-            if (json.isInt())
-            {
-                return json.asInt();
-            }
-            else if (json.isString())
-            {
-                return json.asString();
-            }
-            return json;
-        }
+        return variableNode;
     }
     throw runtime_error("Invalid expression. Unexpected token: " +
                         to_string(ahead_[0].type()));
 }
 
 // param_suffix ::= "[" expr "]" | "." Identifier
-void Parser::paramSuffix(ParamItem &param)
+void Parser::paramSuffix(ASTNodePtr &param)
 {
     if (ahead_[0].type() == LBracket)
     {
         match(LBracket);
-        auto index = expr();
+        auto indexNode = expr();
         match(RBracket);
-        if (holds_alternative<string>(*param))
-        {
-            param = nullopt;
-        }
-        if (!param)
-        {
-            return;
-        }
-        auto json = get<Json::Value>(*param);
-        if (json.isArray() && holds_alternative<int32_t>(*index))
-        {
-            auto indexInt = get<int32_t>(*index);
-            if (indexInt < 0 || indexInt >= static_cast<int>(json.size()))
-            {
-                param = nullopt;
-                return;
-            }
-            param = json[indexInt];
-        }
-        else if (json.isObject() && holds_alternative<string>(*index))
-        {
-            auto indexStr = get<string>(*index);
-            if (!json.isMember(indexStr))
-            {
-                param = nullopt;
-                return;
-            }
-            param = json[indexStr];
-        }
+        param = make_shared<ArrayNode>(param, indexNode);
     }
     else if (ahead_[0].type() == Dot)
     {
         match(Dot);
         auto memberName = match(Identifier);
-        if (holds_alternative<Json::Value>(*param))
-        {
-            auto json = get<Json::Value>(*param);
-            if (json.isObject() && json.isMember(memberName))
-            {
-                param = json[memberName];
-                return;
-            }
-        }
-        param = nullopt;
+        param =
+            make_shared<MemberNode>(param, make_shared<StringNode>(memberName));
     }
 }
 
 // sub_sql ::= "@" Identifier "(" [param_list] ")"
-string Parser::subSql()
+ASTNodePtr Parser::subSql()
 {
     match(At);
     auto subSqlName = match(Identifier);
     match(LParen);
-    ParamList params = {};
+    unordered_map<string, ASTNodePtr> params = {};
     if (ahead_[0].type() == Identifier)
     {
         params = paramList();
     }
     match(RParen);
-    return subSqlGetter_(subSqlName, params);
+    return make_shared<SubSqlNode>(subSqlName, subSqlGetter_, params);
 }
 
 // param_list ::= param_item { "," param_item }
-ParamList Parser::paramList()
+unordered_map<string, ASTNodePtr> Parser::paramList()
 {
-    ParamList result;
+    unordered_map<string, ASTNodePtr> result;
     result.emplace(paramItem());
     while (true)
     {
@@ -417,10 +666,10 @@ ParamList Parser::paramList()
 }
 
 // param_item ::= Identifier ["=" param_value]
-ParamList::value_type Parser::paramItem()
+pair<string, ASTNodePtr> Parser::paramItem()
 {
     auto paramName = match(Identifier);
-    ParamItem param;
+    ASTNodePtr param;
     if (ahead_[0].type() == Assign)
     {
         match(Assign);
@@ -428,22 +677,13 @@ ParamList::value_type Parser::paramItem()
     }
     else
     {
-        auto result = getParamByName(paramName);
-        if (!result)
-        {
-            LOG_ERROR << "parameter \"" << paramName << "\" not found";
-            param = nullopt;
-        }
-        else if (holds_alternative<string>(*result))
-        {
-            param = get<string>(*result);
-        }
+        param = make_shared<VariableNode>(paramName);
     }
-    return {paramName, *param};
+    return {paramName, param};
 }
 
 // param_value ::= expr | sub_sql
-ParamItem Parser::paramValue()
+ASTNodePtr Parser::paramValue()
 {
     if (ahead_[0].type() == At)
     {
@@ -451,23 +691,7 @@ ParamItem Parser::paramValue()
     }
     else
     {
-        auto result = expr();
-        if (!result)
-        {
-            return nullopt;
-        }
-        else if (holds_alternative<int32_t>(*result))
-        {
-            return std::to_string(get<int32_t>(*result));
-        }
-        else if (holds_alternative<string>(*result))
-        {
-            return get<string>(*result);
-        }
-        else  // Json::Value
-        {
-            return get<Json::Value>(*result);
-        }
+        return expr();
     }
 }
 
@@ -475,95 +699,80 @@ ParamItem Parser::paramValue()
 //            {"@" "elif" "(" bool_expr ")" sql}
 //            ["@" "else" sql]
 //             "@" "endif"
-string Parser::ifStmt()
+ASTNodePtr Parser::ifStmt()
 {
-    string result;
     match(At);
     match(If);
     match(LParen);
     auto condition = boolExpr();
     match(RParen);
-    auto sqlStmt = sql();
-    if (condition)
+    auto ifStmt = sql();
+    vector<pair<ASTNodePtr, ASTNodePtr>> elIfStmts;
+    while (ahead_[0].type() == At && ahead_[1].type() == ElIf)
     {
-        result += sqlStmt;
+        match(At);
+        match(ElIf);
+        match(LParen);
+        auto elIfCondition = boolExpr();
+        match(RParen);
+        auto elIfStmt = sql();
+        elIfStmts.emplace_back(elIfCondition, elIfStmt);
     }
-    while (true)
-    {
-        if (ahead_[0].type() == At && ahead_[1].type() == ElIf)
-        {
-            match(At);
-            match(ElIf);
-            match(LParen);
-            auto elIfCondition = boolExpr();
-            match(RParen);
-            auto sqlStmt = sql();
-            if (!condition && elIfCondition)
-            {
-                result += sqlStmt;
-                condition = true;
-            }
-        }
-        else
-        {
-            break;
-        }
-    }
+    ASTNodePtr elseStmt;
     if (ahead_[0].type() == At && ahead_[1].type() == Else)
     {
         match(At);
         match(Else);
-        auto sqlStmt = sql();
-        if (!condition)
-        {
-            result += sqlStmt;
-        }
+        elseStmt = sql();
     }
     match(At);
     match(EndIf);
-    return result;
+    auto ifNode = make_shared<IfStmtNode>(condition, ifStmt, elseStmt);
+    for (const auto &elIfStmt : elIfStmts)
+    {
+        ifNode->addElIfStmt(elIfStmt.first, elIfStmt.second);
+    }
+    return ifNode;
 }
 
 // bool_expr ::= term {("or"|"||") term}
-bool Parser::boolExpr()
+ASTNodePtr Parser::boolExpr()
 {
-    auto result = term();
+    auto root = term();
     while (true)
     {
         if (ahead_[0].type() == Or)
         {
             match(Or);
-            result = term() || result;
+            root = make_shared<OrNode>(root, term());
         }
         else
         {
-            break;
+            return root;
         }
     }
-    return result;
 }
 
 // term ::= factor {("and"|"&&") factor}
-bool Parser::term()
+ASTNodePtr Parser::term()
 {
-    auto result = factor();
+    auto root = factor();
     while (true)
     {
         if (ahead_[0].type() == And)
         {
             match(And);
-            result = factor() && result;
+            root = make_shared<AndNode>(root, factor());
         }
         else
         {
-            break;
+            return root;
         }
     }
-    return result;
 }
 
-// factor ::= ["!"|"not"] ("(" bool_expr ")" | expr)
-bool Parser::factor()
+// factor ::= ["!"|"not"] ("(" bool_expr ")" | comp_expr)
+ASTNodePtr Parser::factor()
 {
     auto isNegated = false;
     if (ahead_[0].type() == Not)
@@ -574,71 +783,41 @@ bool Parser::factor()
     if (ahead_[0].type() == LParen)
     {
         match(LParen);
-        auto result = boolExpr();
+        auto boolNode = boolExpr();
         match(RParen);
-        return isNegated ^ result;
+        if (isNegated)
+        {
+            return make_shared<NotNode>(boolNode);
+        }
+        return boolNode;
     }
-    return isNegated ^ compExpr();
+    auto compNode = compExpr();
+    if (isNegated)
+    {
+        return make_shared<NotNode>(compNode);
+    }
+    return compNode;
 }
 
 // comp_expr ::= expr [("=="|"!=") expr]
-bool Parser::compExpr()
+ASTNodePtr Parser::compExpr()
 {
     auto result1 = expr();
-    ParamItem result2;
-    bool isEqual;
+    ASTNodePtr result2;
     if (ahead_[0].type() == EQ)
     {
         match(EQ);
         result2 = expr();
-        isEqual = true;
+        auto eqNode = make_shared<EQNode>(result1, result2);
     }
     else if (ahead_[0].type() == NEQ)
     {
         match(NEQ);
         result2 = expr();
-        isEqual = false;
+        auto eqNode = make_shared<NEQNode>(result1, result2);
     }
-    // `param` means `param == null`
-    else
-    {
-        return result1 ? true : false;
-    }
-    // null and null
-    if (!result1 && !result2)
-    {
-        return isEqual;
-    }
-    // only one is null
-    else if (!result1 || !result2)
-    {
-        return !isEqual;
-    }
-    // same types
-    else if (holds_alternative<int32_t>(*result1) &&
-             holds_alternative<int32_t>(*result2))
-    {
-        return isEqual ? get<int32_t>(*result1) == get<int32_t>(*result2)
-                       : get<int32_t>(*result1) != get<int32_t>(*result2);
-    }
-    else if (holds_alternative<string>(*result1) &&
-             holds_alternative<string>(*result2))
-    {
-        return isEqual ? get<string>(*result1) == get<string>(*result2)
-                       : get<string>(*result1) != get<string>(*result2);
-    }
-    else if (holds_alternative<Json::Value>(*result1) &&
-             holds_alternative<Json::Value>(*result2))
-    {
-        return isEqual
-                   ? get<Json::Value>(*result1) == get<Json::Value>(*result2)
-                   : get<Json::Value>(*result1) != get<Json::Value>(*result2);
-    }
-    // different types
-    else
-    {
-        return !isEqual;
-    }
+    // `param` means `param != null`
+    return result1;
 }
 
 string Parser::match(TokenType type)
@@ -684,6 +863,20 @@ void SqlGenerator::initAndStart(const Json::Value &config)
     sqls_ = config["sqls"];
 }
 
+void SqlGenerator::printTokens(const string &name, const string &subSqlName)
+{
+    prepareParser(name, subSqlName);
+    cout << "Tokens for " << name << "." << subSqlName << ":\n";
+    parsers_[name].at(subSqlName).printTokens();
+}
+
+void SqlGenerator::printAST(const string &name, const string &subSqlName)
+{
+    prepareParser(name, subSqlName);
+    cout << "AST for " << name << "." << subSqlName << ":\n";
+    parsers_[name].at(subSqlName).printAST();
+}
+
 string SqlGenerator::getSql(const string &name, const ParamList &params)
 {
     assert(sqls_.isMember(name));
@@ -707,36 +900,48 @@ string SqlGenerator::getSubSql(const string &name,
                                const string &subSqlName,
                                ParamList params)
 {
-    // Set default parameters if not provided by the user
-    auto setDefaultParam = [&]() {
-        auto &subSqlJson = sqls_[name][subSqlName];
-        if (subSqlJson.isObject() && subSqlJson.isMember("params") &&
-            subSqlJson["params"].isObject())
+    prepareParser(name, subSqlName);
+
+    auto &subSqlJson = sqls_[name][subSqlName];
+    if (subSqlJson.isObject() && subSqlJson.isMember("params") &&
+        subSqlJson["params"].isObject())
+    {
+        auto &paramsJson = subSqlJson["params"];
+        for (const auto &paramName : paramsJson.getMemberNames())
         {
-            auto &paramsJson = subSqlJson["params"];
-            for (const auto &paramName : paramsJson.getMemberNames())
+            if (params.find(paramName) == params.end())
             {
-                if (params.find(paramName) == params.end())
+                switch (paramsJson[paramName].type())
                 {
-                    switch (paramsJson[paramName].type())
-                    {
-                        case Json::stringValue:
-                            params.emplace(paramName,
-                                           paramsJson[paramName].asString());
-                            break;
-                        case Json::intValue:
-                            params.emplace(paramName,
-                                           paramsJson[paramName].asInt());
-                            break;
-                        default:
-                            params.emplace(paramName, paramsJson[paramName]);
-                            break;
-                    }
+                    case Json::stringValue:
+                        params.emplace(paramName,
+                                       paramsJson[paramName].asString());
+                        break;
+                    case Json::intValue:
+                        params.emplace(paramName,
+                                       paramsJson[paramName].asInt());
+                        break;
+                    default:
+                        params.emplace(paramName, paramsJson[paramName]);
+                        break;
                 }
             }
         }
-    };
+    }
 
+    parsers_[name].at(subSqlName).setParams(params);
+    return parsers_[name].at(subSqlName).parse();
+}
+
+string SqlGenerator::getSimpleSql(const string &name, const ParamList &params)
+{
+    prepareParser(name, "main");
+    parsers_[name].at("main").setParams(params);
+    return parsers_[name].at("main").parse();
+}
+
+void SqlGenerator::prepareParser(const string &name, const string &subSqlName)
+{
     if (parsers_.find(name) == parsers_.end())
     {
         parsers_.emplace(name, unordered_map<string, Parser>());
@@ -745,50 +950,39 @@ string SqlGenerator::getSubSql(const string &name,
     // If the parser has been set, use it directly
     if (parsers_[name].find(subSqlName) != parsers_[name].end())
     {
-        setDefaultParam();
-        parsers_[name].at(subSqlName).setParams(params);
-        return parsers_[name].at(subSqlName).parse();
+        return;
     }
 
-    // Prepare parameters
-    string sql;
-    auto &subSqlJson = sqls_[name][subSqlName];
-    if (subSqlJson.isString())
+    // If the parser has not been set, create a new one
+    if (sqls_[name].isString())
     {
-        sql = subSqlJson.asString();
-    }
-    else if (subSqlJson.isObject())
-    {
-        if (subSqlJson.isMember("sql") && subSqlJson["sql"].isString())
+        if (subSqlName == "main")
         {
-            sql = subSqlJson["sql"].asString();
+            parsers_[name].emplace(subSqlName, Parser(sqls_[name].asString()));
         }
-        setDefaultParam();
     }
-
-    // Set the parser for the corresponding SQL statement
-    parsers_[name].emplace(subSqlName, Parser(sql));
-    parsers_[name].at(subSqlName).setParams(params);
-    parsers_[name]
-        .at(subSqlName)
-        .setSubSqlGetter(
-            [this, &name](const string &subSqlName, const ParamList &params) {
-                return getSubSql(name, subSqlName, params);
-            });
-
-    return parsers_[name].at(subSqlName).parse();
-}
-
-string SqlGenerator::getSimpleSql(const string &name, const ParamList &params)
-{
-    if (parsers_.find(name) == parsers_.end())
+    else if (sqls_[name].isObject() && sqls_[name].isMember(subSqlName))
     {
-        parsers_.emplace(name, unordered_map<string, Parser>());
+        string sql;
+        auto &subSqlJson = sqls_[name][subSqlName];
+        if (subSqlJson.isString())
+        {
+            sql = subSqlJson.asString();
+        }
+        else if (subSqlJson.isObject())
+        {
+            if (subSqlJson.isMember("sql") && subSqlJson["sql"].isString())
+            {
+                sql = subSqlJson["sql"].asString();
+            }
+        }
+        parsers_[name].emplace(subSqlName, Parser(sql));
+        parsers_[name]
+            .at(subSqlName)
+            .setSubSqlGetter(
+                [this, name = std::move(name)](const string &subSqlName,
+                                               const ParamList &params) {
+                    return getSubSql(name, subSqlName, params);
+                });
     }
-    if (parsers_[name].find("main") == parsers_[name].end())
-    {
-        parsers_[name].emplace("main", Parser(sqls_[name].asString()));
-    }
-    parsers_[name].at("main").setParams(params);
-    return parsers_[name].at("main").parse();
 }
