@@ -4,8 +4,8 @@
  * framework for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-02-11
- * @version 0.5.2
+ * @date 2025-02-12
+ * @version 0.6.0
  *
  * This implementation file contains the definitions for the SqlGenerator
  * library, including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -47,8 +47,10 @@ Token Lexer::next()
         {"elif", ElIf},
         {"endif", EndIf},
         {"for", For},
+        {"separator", Separator},
         {"in", In},
         {"null", Null},
+        {"endfor", EndFor},
     };
     auto c = sql_[pos_];
     // Non-special syntax characters
@@ -56,7 +58,7 @@ Token Lexer::next()
     {
         if (c == '@')
         {
-            rollbackPos_.emplace(pos_);
+            cancelOnceLParen_ = true;
         }
         if (c == '@' || c == '$')
         {
@@ -81,17 +83,20 @@ Token Lexer::next()
     // Single character token
     switch (c)
     {
-        case '@':
-            rollbackPos_.emplace(pos_);
-            [[fallthrough]];
-        case '$':
-            ++parenDepth_;
+        case '(':
+            if (!cancelOnceLParen_)
+            {
+                case '@':
+                    cancelOnceLParen_ = true;
+                case '$':
+                    ++parenDepth_;
+            }
+            cancelOnceLParen_ = false;
             goto label;
         case ')':
         case '}':
             --parenDepth_;
             [[fallthrough]];
-        case '(':
         case ',':
         case '{':
         case '.':
@@ -168,7 +173,8 @@ Token Lexer::next()
         }
         if (keywordMap.count(identifier))
         {
-            if (identifier == "else" || identifier == "endif")
+            if (identifier == "else" || identifier == "endif" ||
+                identifier == "endfor")
             {
                 --parenDepth_;
             }
@@ -515,7 +521,7 @@ string Parser::parse()
     return root_->generateSql(params_);
 }
 
-// sql ::= [NormalText] {(sub_sql|print_expr|if_stmt) [NormalText]}
+// sql ::= [NormalText] {(sub_sql|print_expr|if_stmt|for_loop) [NormalText]}
 ASTNodePtr Parser::sql()
 {
     ASTNodePtr head;
@@ -548,6 +554,10 @@ ASTNodePtr Parser::sql()
             else if (ahead_[1].type() == If)
             {
                 addNode(ifStmt());
+            }
+            else if (ahead_[1].type() == For)
+            {
+                addNode(forLoop());
             }
             else
             {
@@ -818,6 +828,47 @@ ASTNodePtr Parser::compExpr()
     }
     // `param` means `param != null`
     return result1;
+}
+
+// for_loop ::= "@" "for" "("
+//              (Identifier|"(" Identifier "," Identifier ")") "in" expr
+//              ["," "separator" "=" String]
+//              ")" sql "@" "endif"
+ASTNodePtr Parser::forLoop()
+{
+    match(At);
+    match(For);
+    match(LParen);
+    string varName;
+    string indexName;
+    if (ahead_[0].type() == LParen)
+    {
+        match(LParen);
+        varName = match(Identifier);
+        match(Comma);
+        indexName = match(Identifier);
+        match(RParen);
+    }
+    else if (ahead_[0].type() == Identifier)
+    {
+        varName = match(Identifier);
+    }
+    match(In);
+    auto collection = this->expr();
+    ASTNodePtr separator{nullptr};
+    if (ahead_[0].type() == Comma)
+    {
+        match(Comma);
+        match(Separator);
+        match(Assign);
+        separator = make_shared<StringNode>(match(String));
+    }
+    match(RParen);
+    auto loopBody = sql();
+    match(At);
+    match(EndFor);
+    return make_shared<ForLoopNode>(
+        varName, indexName, collection, separator, loopBody);
 }
 
 string Parser::match(TokenType type)

@@ -76,6 +76,38 @@
 					}
 				}
 			}
+		},
+		"for_test": {
+			"main": {
+				"sql": "INSERT INTO users (id, name, address) VALUES @for((user, index) in users, separator=',') (${index}, '${user.name}', '${user.address.province}-${user.address.city}') @endfor",
+				"params": {
+					"users": {
+						"a": {"name": "张三", "address": {"province": "上海", "city": "上海市"}},
+						"b": {"name": "李四", "address": {"province": "北京", "city": "北京市"}},
+					}
+				}
+			}
+		},
+		"for_test2": {
+			"main": {
+				"sql": "SELECT * FROM users WHERE id IN (@for(id in ids, separator=',') ${id} @endfor)",
+				"params": {
+					"ids": [1, 2, 3, 4, 5]
+				}
+			}
+		},
+        "get_menu_with_submenu": {
+            "main": "WITH RECURSIVE menu_tree AS (@recursive_query(id=menu_id)) SELECT * FROM menu_tree",
+            "recursive_query": {
+				"sql": "@root_node(id, column_names) UNION ALL @child_nodes(column_names)",
+				"params": {
+					"column_names": ["id", "parent_id"]
+				}
+			},
+            "root_node": "SELECT @for(column_name in column_names, separator=',') ${column_name} @endfor FROM menu WHERE id=${id}",
+            "child_nodes": "SELECT @for(column_name in column_names, separator=',') m.${column_name} @endfor FROM menu m INNER JOIN menu_tree mt ON m.parent_id = mt.id",
 		}
 	}
 }
+
+// vim: wrap 

@@ -25,8 +25,8 @@
  * for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-02-11
- * @version 0.5.2
+ * @date 2025-02-12
+ * @version 0.6.0
  *
  * This header file contains the declarations for the SqlGenerator library,
  * including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -81,6 +81,7 @@ enum TokenType
     ElIf,        ///< 'elif'
     EndIf,       ///< 'endif'
     For,         ///< 'for'
+    Separator,   ///< 'separator'
     In,          ///< 'in'
     EndFor,      ///< 'endfor'
     Done,        ///< All token is processed.
@@ -127,6 +128,7 @@ inline std::string to_string(TokenType type)
         TOKEN_TYPE_CASE(ElIf);
         TOKEN_TYPE_CASE(EndIf);
         TOKEN_TYPE_CASE(For);
+        TOKEN_TYPE_CASE(Separator);
         TOKEN_TYPE_CASE(In);
         TOKEN_TYPE_CASE(Null);
         TOKEN_TYPE_CASE(EndFor);
@@ -234,8 +236,24 @@ class Lexer
 
     /**
      * @brief Returns the next token in the SQL statement.
+     *
+     * parenDepth_ represents the nesting depth of parentheses. If its value is
+     * 0, it indicates that the parser is processing normal SQL text, and most
+     * symbols are retained for the next token unless @ or $ is encountered.
+     * The original logic incremented the parenthesis depth by one when @ or $
+     * was encountered, and decremented it by one when ) or } was encountered,
+     * which correctly parsed the sub-SQL name between @ and (.
+     * However, with the increase in supported syntax, parentheses can also be
+     * used to represent values and indices retrieved in for loops and nested
+     * boolean expressions. Therefore, the logic has been modified.
+     * When @ is encountered, the parenthesis depth is incremented by one, and
+     * cancelOnceLParen_ is set to true.
+     * When ( is encountered, if cancelOnceLParen_ is true, cancelOnceLParen_ is
+     * set to false; otherwise, the parenthesis depth is incremented by one.
+     * The handling of $ { } symbols remains the same as before.
+     *
      * @return The next token.
-     * @date 2025-02-05
+     * @date 2025-02-12
      */
     Token next();
 
@@ -254,6 +272,7 @@ class Lexer
     size_t pos_{0};         ///< The current position in the SQL statement.
     size_t parenDepth_{0};  ///< The current depth of nested parentheses.
     std::stack<size_t> rollbackPos_;  ///< The number of tokens to backtrack.
+    bool cancelOnceLParen_{false};    ///< Whether to cancel the next LParen.
 };
 
 using ParamList =
@@ -928,6 +947,127 @@ class IfStmtNode : public ASTNode
 };
 
 /**
+ * @class ForLoopNode
+ * @brief Represents a for loop node in the abstract syntax tree (AST) of an SQL
+ * statement.
+ *
+ * This class is a specific type of AST node that handles the for loop construct
+ * within SQL statements.
+ * It iterates over a collection of values, optionally using an index, and
+ * applies a loop body for each iteration.
+ * The class supports collections represented as JSON arrays or objects.
+ *
+ * @date 2025-02-12
+ * @since 0.6.0
+ */
+class ForLoopNode : public ASTNode
+{
+  public:
+    ForLoopNode(const std::string& valueName,
+                const std::string& indexName,
+                const ASTNodePtr& collection,
+                const ASTNodePtr& separator,
+                const ASTNodePtr& block)
+        : ASTNode(),
+          valueName_(valueName),
+          indexName_(indexName),
+          collection_(collection),
+          separator_(separator),
+          loopBody_(block)
+    {
+    }
+
+    virtual ~ForLoopNode() = default;
+
+  public:
+    /**
+     * @brief Retrieves the value represented by this for loop node.
+     *
+     * This method evaluates the for loop by iterating over the collection,
+     * optionally using an index, and generating SQL for each iteration. The
+     * generated SQL is concatenated with the separator string.
+     *
+     * @param params A list of parameters to be used in evaluating the loop.
+     * @return A ParamItem containing the generated SQL string for the loop.
+     */
+    virtual ParamItem getValue(const ParamList& params = {}) const override
+    {
+        auto newParams = params;
+        auto collection = collection_->getValue(params);
+        auto collectionJson =
+            collection ? std::get<Json::Value>(*collection) : Json::Value{};
+        auto separator =
+            separator_ ? separator_->getValue(params) : std::nullopt;
+        auto separatorStr = separator ? std::get<std::string>(*separator) : "";
+
+        auto setParamAndIndex = [this](ParamList& newParams,
+                                       const Json::Value& collectionJson,
+                                       const auto& index) {
+            const auto& valueJson = collectionJson[index];
+            if (valueJson.isInt())
+            {
+                newParams.erase(valueName_);
+                newParams.emplace(valueName_, valueJson.asInt());
+            }
+            else if (valueJson.isString())
+            {
+                newParams.erase(valueName_);
+                newParams.emplace(valueName_, valueJson.asString());
+            }
+            else
+            {
+                newParams.erase(valueName_);
+                newParams.emplace(valueName_, valueJson);
+            }
+            if (!indexName_.empty())
+            {
+                newParams.erase(indexName_);
+                newParams.emplace(indexName_, index);
+            }
+        };
+        std::string result;
+        auto appendResult =
+            [this, &result, &separatorStr](const ParamList& params,
+                                           const Json::Value& collectionJson,
+                                           const int i) {
+                result += loopBody_->generateSql(params);
+                if (static_cast<size_t>(i) + 1 != collectionJson.size())
+                {
+                    result += separatorStr;
+                }
+            };
+        if (collectionJson.isArray())
+        {
+            for (int i = 0; static_cast<size_t>(i) < collectionJson.size(); ++i)
+            {
+                setParamAndIndex(newParams, collectionJson, i);
+                appendResult(newParams, collectionJson, i);
+            }
+        }
+        else if (collectionJson.isObject())
+        {
+            auto memberNames = collectionJson.getMemberNames();
+            for (int i = 0; static_cast<size_t>(i) < memberNames.size(); ++i)
+            {
+                setParamAndIndex(newParams, collectionJson, memberNames[i]);
+                appendResult(newParams, collectionJson, i);
+            }
+        }
+        return result;
+    }
+
+  private:
+    std::string valueName_;  ///< The name of the value variable in the loop.
+    std::string indexName_;  ///< The name of the index or key variable in the
+                             ///< loop.
+    ASTNodePtr collection_;  ///< The collection to iterate over.
+    ASTNodePtr separator_;   ///< The separator to use between generated SQL
+                             ///< statements.
+    ASTNodePtr loopBody_;    ///< The block of SQL statements to execute in each
+                             ///< iteration.;
+};
+
+/**
  * @class Parser
  * @brief Processes tokens to generate the final SQL statement.
  *
@@ -1005,7 +1145,7 @@ class Parser
      *
      * The rules are as follows:
      * @code{.ebnf}
-     * sql ::= [NormalText] {(sub_sql|print_expr|if_stmt) [NormalText]}
+     * sql ::= [NormalText] {(sub_sql|print_expr|if_stmt|for_loop) [NormalText]}
      * print_expr ::= "$" "{" expr "}"
      * expr ::= 'null' | Integer | String | Identifier {param_suffix}
      * param_suffix ::= "[" expr "]" | "." Identifier
@@ -1021,6 +1161,10 @@ class Parser
      * term ::= factor {("and"|"&&") factor}
      * factor ::= ["!"|"not"] ("(" bool_expr ")" | comp_expr)
      * comp_expr ::= expr [("=="|"!=") expr]
+	 * for_loop ::= "@" "for" "("
+	 *              (Identifier|"(" Identifier "," Identifier ")") "in" expr
+	 *              ["," "separator" "=" String]
+	 *              ")" sql "@" "endif"
      *
      * // Regular expressions to express basic tokens.
      * NormalText ::= [^@$]*
@@ -1063,6 +1207,8 @@ class Parser
     ASTNodePtr factor();
 
     ASTNodePtr compExpr();
+
+    ASTNodePtr forLoop();
 
     std::string match(TokenType);
 

@@ -50,7 +50,7 @@ int main()
 
     getSqlAndPrint("count_user");
 
-    getSqlAndPrint("get_user_by_id");
+    getSqlAndPrint("get_user_by_id", {{"user_id", 1}});
 
     getSqlAndPrint("get_user_paginated", {{"limit", 10}, {"offset", 300}});
 
@@ -92,9 +92,12 @@ int main()
     param4[1]["address"][1] = "牡丹江";
     getSqlAndPrint("array_object_param_with_array_param", {{"users", param4}});
 
-    printTokens("if_else_test");
-    printAST("if_else_test");
     getSqlAndPrint("if_else_test");
 
+    getSqlAndPrint("for_test");
+
+    getSqlAndPrint("for_test2");
+
+    getSqlAndPrint("get_menu_with_submenu", {{"menu_id", 1}});
     return 0;
 }

@@ -81,11 +81,14 @@ plugins:
         get_menu_with_submenu:
           main: WITH RECURSIVE menu_tree AS (@recursive_query(id=menu_id)) SELECT * FROM menu_tree
           # @root_node(id=id) 可以简写为 @root_node(id)
-          recursive_query: "@root_node(id=id) UNION ALL @child_nodes()"
-          root_node: SELECT @root_node_columns() FROM menu WHERE id=${id}
-          root_node_columns: id, parent_id, ...
-          child_nodes: SELECT @child_node_columns() FROM menu m INNER JOIN menu_tree mt ON m.parent_id = mt.id
-          child_node_columns: m.id, m.parent_id, ...
+          recursive_query:
+            sql: "@root_node(id=id, column_names) UNION ALL @child_nodes(column_names)"
+            params:
+              column_names:
+                - id
+                - parent_id
+          root_node: SELECT @for(column_name in column_names, separator=',') ${column_name} @endfor FROM menu WHERE id=${id}
+          child_nodes: SELECT @for(column_name in column_names, separator=',') m.${column_name} @endfor FROM menu m INNER JOIN menu_tree mt ON m.parent_id = mt.id
 ```
 
 ### 生成 SQL 语句
@@ -126,5 +129,8 @@ int main()
 - 条件判断：使用 `@if(condition1) true_statement1 @elif(condition2) true_statement2 @else false_statement @endif` 进行条件判断。
   - 条件表达式可以使用 `and` 、 `or` 、 `not` 、 `&&` 、 `||` 、 `!` 、 `(` 、 `)` 、 `==` 、 `!=` 运算符。
   - 条件表达式可以使用 `param == null` 进行空值判断，可以简写为 `param` 。
+- 循环语句：使用 `@for((item, index) in list, separator = ',') statement @endfor` 进行循环。
+  - 其中 `index` `separator` 都是可选参数。
+  - 当 `list` 为对象时， `index` 为属性名，当 `list` 为数组时，` index` 为数组下标。
 
 本文档提供了使用 `SqlGenerator` 插件动态生成 SQL 语句（支持参数替换和子SQL包含）的基本概述。

@@ -81,11 +81,14 @@ plugins:
         get_menu_with_submenu:
           main: WITH RECURSIVE menu_tree AS (@recursive_query(id=menu_id)) SELECT * FROM menu_tree
           # @root_node(id=id) can be simplified as @root_node(id)
-          recursive_query: "@root_node(id=id) UNION ALL @child_nodes()"
-          root_node: SELECT @root_node_columns() FROM menu WHERE id=${id}
-          root_node_columns: id, parent_id, ...
-          child_nodes: SELECT @child_node_columns() FROM menu m INNER JOIN menu_tree mt ON m.parent_id = mt.id
-          child_node_columns: m.id, m.parent_id, ...
+          recursive_query:
+            sql: "@root_node(id=id, column_names) UNION ALL @child_nodes(column_names)"
+            params:
+              column_names:
+                - id
+                - parent_id
+          root_node: SELECT @for(column_name in column_names, separator=',') ${column_name} @endfor FROM menu WHERE id=${id}
+          child_nodes: SELECT @for(column_name in column_names, separator=',') m.${column_name} @endfor FROM menu m INNER JOIN menu_tree mt ON m.parent_id = mt.id
 ```
 
 ### Generating SQL Statements
@@ -126,5 +129,8 @@ The SQL statements are defined using a specific syntax:
 - Conditional Statement: use `@if(condition1) true_statement1 @elif(condition2) true_statement2 @else false_statement @endif` for conditional statements.
   - Conditional expressions can use `and`, `or`, `not`, `&&`, `||`, `!`, `(`, `)`, `==`, `!=` operators.
   - Conditional expressions can check for null values using `param == null`, which can be simplified to `param`.
+- Loop statement: Use `@for((item, index) in list, separator = ',') statement @endfor` for looping.
+  - Both `index` and `separator` are optional parameters.
+  - When `list` is an object, `index` represents the property name; when `list` is an array, index represents the array index.
 
 This document provides a basic overview of how to use the `SqlGenerator` plugin to dynamically generate SQL statements with parameter substitution and sub-SQL inclusion.
