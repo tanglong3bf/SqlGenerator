@@ -26,7 +26,7 @@
  *
  * @author tanglong3bf
  * @date 2025-02-12
- * @version 0.6.0
+ * @version 0.6.1
  *
  * This header file contains the declarations for the SqlGenerator library,
  * including the Token, Lexer, Parser, and SqlGenerator classes. The

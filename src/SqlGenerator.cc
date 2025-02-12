@@ -5,7 +5,7 @@
  *
  * @author tanglong3bf
  * @date 2025-02-12
- * @version 0.6.0
+ * @version 0.6.1
  *
  * This implementation file contains the definitions for the SqlGenerator
  * library, including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -818,13 +818,13 @@ ASTNodePtr Parser::compExpr()
     {
         match(EQ);
         result2 = expr();
-        auto eqNode = make_shared<EQNode>(result1, result2);
+        return make_shared<EQNode>(result1, result2);
     }
     else if (ahead_[0].type() == NEQ)
     {
         match(NEQ);
         result2 = expr();
-        auto eqNode = make_shared<NEQNode>(result1, result2);
+        return make_shared<NEQNode>(result1, result2);
     }
     // `param` means `param != null`
     return result1;
