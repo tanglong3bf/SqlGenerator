@@ -4,8 +4,8 @@
  * framework for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-02-12
- * @version 0.6.1
+ * @date 2025-02-13
+ * @version 0.6.2
  *
  * This implementation file contains the definitions for the SqlGenerator
  * library, including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -470,16 +470,69 @@ ParamItem IfStmtNode::getValue(const ParamList &params) const
 void Parser::printTokens()
 {
     reset();
-    auto printToken = [](const Token &token) {
+    size_t parenDepth = 0;
+    auto printToken = [&parenDepth](const Token &token) {
+        std::array<string, 31> colors{
+            "\033[38;5;46m",   // NormalText
+            "\033[38;5;208m",  // At
+            "\033[38;5;105m",  // Identifier
+            "\033[38;5;105m",  // LParen
+            "\033[38;5;226m",  // Assign
+            "\033[38;5;46m",   // String
+            "\033[38;5;202m",  // Integer
+            "\033[38;5;105m",  // Comma
+            "\033[38;5;105m",  // RParen
+            "\033[38;5;208m",  // Dollar
+            "\033[38;5;105m",  // LBrace
+            "\033[38;5;105m",  // RBrace
+            "\033[38;5;105m",  // Dot
+            "\033[38;5;105m",  // LBracket
+            "\033[38;5;105m",  // RBracket
+            "\033[38;5;201m",  // If
+            "\033[38;5;208m",  // And
+            "\033[38;5;196m",  // Or
+            "\033[38;5;196m",  // Not
+            "\033[38;5;226m",  // EQ
+            "\033[38;5;226m",  // NEQ
+            "\033[38;5;244m",  // Null
+            "\033[38;5;201m",  // Else
+            "\033[38;5;201m",  // ElIf
+            "\033[38;5;201m",  // EndIf
+            "\033[38;5;201m",  // For
+            "\033[38;5;201m",  // Separator
+            "\033[38;5;201m",  // In
+            "\033[38;5;201m",  // EndFor
+            "\033[38;5;255m",  // Done
+            "\033[38;5;196m",  // Unknown
+        };
+        std::array<string, 3> parenColors{
+            "\033[38;5;105m",
+            "\033[38;5;214m",
+            "\033[38;5;76m",
+        };
         if (token.type() != Done)
         {
-            cout << "\033[36m"
-                 << "[" << token.type() << "]";
+            parenDepth += (token.type() == LParen || token.type() == LBrace ||
+                           token.type() == LBracket);
+            auto color = colors[token.type()];
+            if (token.type() == LParen || token.type() == RParen ||
+                token.type() == LBrace || token.type() == RBrace ||
+                token.type() == LBracket || token.type() == RBracket ||
+                token.type() == Dot || token.type() == Comma)
+            {
+                color = parenColors[parenDepth % parenColors.size()];
+            }
+            cout << color << "[" << token.type() << "]"
+                 << "\033[0m";
             if (token.value() != "")
             {
-                cout << "<" << token.value() << ">";
+                cout << "<" << color << token.value()
+                     << "\033[0m"
+                        ">";
             }
-            cout << "\033[0m" << endl;
+            cout << endl;
+            parenDepth -= (token.type() == RParen || token.type() == RBrace ||
+                           token.type() == RBracket);
         }
     };
     for (; !lexer_.done(); nextToken())

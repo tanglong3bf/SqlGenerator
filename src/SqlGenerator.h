@@ -25,8 +25,8 @@
  * for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-02-12
- * @version 0.6.1
+ * @date 2025-02-13
+ * @version 0.6.2
  *
  * This header file contains the declarations for the SqlGenerator library,
  * including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -271,7 +271,6 @@ class Lexer
     std::string sql_;       ///< The SQL statement being tokenized.
     size_t pos_{0};         ///< The current position in the SQL statement.
     size_t parenDepth_{0};  ///< The current depth of nested parentheses.
-    std::stack<size_t> rollbackPos_;  ///< The number of tokens to backtrack.
     bool cancelOnceLParen_{false};    ///< Whether to cancel the next LParen.
 };
 
@@ -1091,7 +1090,7 @@ class Parser
     /**
      * @brief This function is used to print the tokens of the SQL statement.
      *
-     * @date 2025-02-11
+     * @date 2025-02-13
      * @since 0.5.0
      */
     void printTokens();
