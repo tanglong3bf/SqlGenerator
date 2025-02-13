@@ -5,7 +5,7 @@
  *
  * @author tanglong3bf
  * @date 2025-02-13
- * @version 0.6.2
+ * @version 0.6.3
  *
  * This implementation file contains the definitions for the SqlGenerator
  * library, including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -83,13 +83,16 @@ Token Lexer::next()
     // Single character token
     switch (c)
     {
+        case '@':
+            cancelOnceLParen_ = true;
+            [[fallthrough]];
+        case '$':
+            ++parenDepth_;
+            goto label;
         case '(':
             if (!cancelOnceLParen_)
             {
-                case '@':
-                    cancelOnceLParen_ = true;
-                case '$':
-                    ++parenDepth_;
+                ++parenDepth_;
             }
             cancelOnceLParen_ = false;
             goto label;

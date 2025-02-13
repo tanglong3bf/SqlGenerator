@@ -26,7 +26,7 @@
  *
  * @author tanglong3bf
  * @date 2025-02-13
- * @version 0.6.2
+ * @version 0.6.3
  *
  * This header file contains the declarations for the SqlGenerator library,
  * including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -253,7 +253,7 @@ class Lexer
      * The handling of $ { } symbols remains the same as before.
      *
      * @return The next token.
-     * @date 2025-02-12
+     * @date 2025-02-13
      */
     Token next();
 
@@ -271,7 +271,7 @@ class Lexer
     std::string sql_;       ///< The SQL statement being tokenized.
     size_t pos_{0};         ///< The current position in the SQL statement.
     size_t parenDepth_{0};  ///< The current depth of nested parentheses.
-    bool cancelOnceLParen_{false};    ///< Whether to cancel the next LParen.
+    bool cancelOnceLParen_{false};  ///< Whether to cancel the next LParen.
 };
 
 using ParamList =
