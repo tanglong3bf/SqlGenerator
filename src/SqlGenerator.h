@@ -25,8 +25,8 @@
  * for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-02-13
- * @version 0.6.3
+ * @date 2025-02-15
+ * @version 0.6.4
  *
  * This header file contains the declarations for the SqlGenerator library,
  * including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -351,9 +351,43 @@ class ASTNode
     virtual ParamItem getValue(const ParamList& params = {}) const = 0;
 
     /**
-     * TODO:
+     * @brief Print the current node and its sibling nodes
+     *
+     * @param indentFlags
+     * Indentation flags indicating whether there is a next sibling node at each
+     * level. 0 indicates no next sibling node at the specified level, 1
+     * indicates there is. These flags are passed to printIndent.
+     * @param isFirstLevel Whether the node is at the first level
+     * @date 2025-02-15
+     * @since 0.6.4
      */
-    void print(const std::string& indent = "") const;
+    void print(std::vector<int>& indentFlags, bool isFirstLevel = false) const;
+
+    /**
+     * @brief Print the information of the current node
+     *
+     * @date 2025-02-15
+     * @since 0.6.4
+     */
+    virtual void printInner(std::vector<int> indentFlags) const = 0;
+
+    /**
+     * @brief
+     * Print indentation based on whether there is a next sibling node and
+     * whether it is the last level
+     *
+     * @date 2025-02-15
+     * @since 0.6.4
+     */
+    void printIndent(std::vector<int>& indentFlags) const;
+
+    /**
+     * @brief Return the name of the current node
+     *
+     * @date 2025-02-15
+     * @since 0.6.4
+     */
+    virtual std::string nodeName() const = 0;
 
   protected:
     std::shared_ptr<ASTNode>
@@ -393,6 +427,13 @@ class NormalTextNode : public ASTNode
         return text_;
     }
 
+    virtual void printInner(std::vector<int> indentFlags) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "NormalTextNode";
+    }
+
   private:
     std::string text_;  ///< The text content of the node.
 };
@@ -426,6 +467,13 @@ class NumberNode : public ASTNode
     virtual ParamItem getValue(const ParamList& = {}) const override
     {
         return value_;
+    }
+
+    virtual void printInner(std::vector<int> indentFlags) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "NumberNode";
     }
 
   private:
@@ -463,6 +511,13 @@ class StringNode : public ASTNode
         return value_;
     }
 
+    virtual void printInner(std::vector<int> indentFlags) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "StringNode";
+    }
+
   private:
     std::string value_;  ///< The string value of the node.
 };
@@ -496,6 +551,13 @@ class NullNode : public ASTNode
     virtual ParamItem getValue(const ParamList& = {}) const override
     {
         return std::nullopt;
+    }
+
+    virtual void printInner(std::vector<int> indentFlags) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "NullNode";
     }
 };
 
@@ -534,6 +596,13 @@ class VariableNode : public ASTNode
      */
     virtual ParamItem getValue(const ParamList& params = {}) const override;
 
+    virtual void printInner(std::vector<int> indentFlags) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "VariableNode";
+    }
+
   private:
     std::string name_;  ///< The name of the variable.
 };
@@ -559,6 +628,8 @@ class BinaryOpNode : public ASTNode
     }
 
     virtual ~BinaryOpNode() = default;
+
+    virtual void printInner(std::vector<int> indentFlags) const override;
 
   protected:
     ASTNodePtr left_;   ///< The left operand node.
@@ -620,6 +691,11 @@ class MemberNode : public BinaryOpNode
      * @return ParamItem The value of the member.
      */
     virtual ParamItem getValue(const ParamList& params = {}) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "MemberNode";
+    }
 };
 
 /**
@@ -655,6 +731,11 @@ class ArrayNode : public BinaryOpNode
      * @return ParamItem The value of the array element.
      */
     virtual ParamItem getValue(const ParamList& params = {}) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "ArrayNode";
+    }
 };
 
 /**
@@ -695,14 +776,19 @@ class SubSqlNode : public ASTNode
      */
     virtual ParamItem getValue(const ParamList& params = {}) const override;
 
+    virtual void printInner(std::vector<int> indentFlags) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "SubSqlNode";
+    }
+
   private:
     std::string name_;  ///< The name of the sub-SQL query.
-
     std::function<std::string(const std::string&, const ParamList&)>
         subSqlGetter_;  ///< This function takes the name of the sub-SQL query
                         ///< and a list of parameters, and returns the sub-SQL
                         ///< query as a string.
-
     std::unordered_map<std::string, ASTNodePtr>
         params_;  ///< Map of parameter names and their corresponding ASTNodePtr
                   ///< values.
@@ -743,6 +829,13 @@ class NotNode : public LogicalOpCode
     {
         return toBool(left_->getValue(params)) ? 0 : 1;
     }
+
+    virtual void printInner(std::vector<int> indentFlags) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "NotNode";
+    }
 };
 
 /**
@@ -778,6 +871,11 @@ class AndNode : public LogicalOpCode
      * @return ParamItem 1 if both operands' values are true, 0 otherwise.
      */
     virtual ParamItem getValue(const ParamList& params = {}) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "AndNode";
+    }
 };
 
 /**
@@ -813,6 +911,11 @@ class OrNode : public LogicalOpCode
      * @return ParamItem 1 if at least one operand's value is true, 0 otherwise.
      */
     virtual ParamItem getValue(const ParamList& params = {}) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "OrNode";
+    }
 };
 
 /**
@@ -847,6 +950,11 @@ class EQNode : public BinaryOpNode
      * @return ParamItem 1 if the operands are equal, 0 otherwise.
      */
     virtual ParamItem getValue(const ParamList& params = {}) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "EQNode";
+    }
 };
 
 /**
@@ -881,6 +989,11 @@ class NEQNode : public BinaryOpNode
      * @return ParamItem 1 if the operands are not equal, 0 otherwise.
      */
     virtual ParamItem getValue(const ParamList& params = {}) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "NEQNode";
+    }
 };
 
 /**
@@ -921,6 +1034,8 @@ class IfStmtNode : public ASTNode
      */
     virtual ParamItem getValue(const ParamList& params = {}) const override;
 
+    virtual void printInner(std::vector<int> indentFlags) const override;
+
     /**
      * @brief Adds an else-if statement to the node.
      *
@@ -934,6 +1049,11 @@ class IfStmtNode : public ASTNode
     void addElIfStmt(const ASTNodePtr& boolExpr, const ASTNodePtr& ifStmt)
     {
         elIfStmts_.emplace_back(boolExpr, ifStmt);
+    }
+
+    virtual std::string nodeName() const override
+    {
+        return "IfStatementNode";
     }
 
   private:
@@ -989,70 +1109,13 @@ class ForLoopNode : public ASTNode
      * @param params A list of parameters to be used in evaluating the loop.
      * @return A ParamItem containing the generated SQL string for the loop.
      */
-    virtual ParamItem getValue(const ParamList& params = {}) const override
-    {
-        auto newParams = params;
-        auto collection = collection_->getValue(params);
-        auto collectionJson =
-            collection ? std::get<Json::Value>(*collection) : Json::Value{};
-        auto separator =
-            separator_ ? separator_->getValue(params) : std::nullopt;
-        auto separatorStr = separator ? std::get<std::string>(*separator) : "";
+    virtual ParamItem getValue(const ParamList& params = {}) const override;
 
-        auto setParamAndIndex = [this](ParamList& newParams,
-                                       const Json::Value& collectionJson,
-                                       const auto& index) {
-            const auto& valueJson = collectionJson[index];
-            if (valueJson.isInt())
-            {
-                newParams.erase(valueName_);
-                newParams.emplace(valueName_, valueJson.asInt());
-            }
-            else if (valueJson.isString())
-            {
-                newParams.erase(valueName_);
-                newParams.emplace(valueName_, valueJson.asString());
-            }
-            else
-            {
-                newParams.erase(valueName_);
-                newParams.emplace(valueName_, valueJson);
-            }
-            if (!indexName_.empty())
-            {
-                newParams.erase(indexName_);
-                newParams.emplace(indexName_, index);
-            }
-        };
-        std::string result;
-        auto appendResult =
-            [this, &result, &separatorStr](const ParamList& params,
-                                           const Json::Value& collectionJson,
-                                           const int i) {
-                result += loopBody_->generateSql(params);
-                if (static_cast<size_t>(i) + 1 != collectionJson.size())
-                {
-                    result += separatorStr;
-                }
-            };
-        if (collectionJson.isArray())
-        {
-            for (int i = 0; static_cast<size_t>(i) < collectionJson.size(); ++i)
-            {
-                setParamAndIndex(newParams, collectionJson, i);
-                appendResult(newParams, collectionJson, i);
-            }
-        }
-        else if (collectionJson.isObject())
-        {
-            auto memberNames = collectionJson.getMemberNames();
-            for (int i = 0; static_cast<size_t>(i) < memberNames.size(); ++i)
-            {
-                setParamAndIndex(newParams, collectionJson, memberNames[i]);
-                appendResult(newParams, collectionJson, i);
-            }
-        }
-        return result;
+    virtual void printInner(std::vector<int> indentFlags) const override;
+
+    virtual std::string nodeName() const override
+    {
+        return "ForLoopNode";
     }
 
   private:
@@ -1097,7 +1160,7 @@ class Parser
 
     /**
      * @brief Prints the Abstract Syntax Tree (AST) to the standard output.
-     * @date 2025-02-11
+     * @date 2025-02-15
      * @since 0.5.2
      */
     void printAST();

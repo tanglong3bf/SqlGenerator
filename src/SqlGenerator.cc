@@ -4,8 +4,8 @@
  * framework for generating SQL statements dynamically.
  *
  * @author tanglong3bf
- * @date 2025-02-13
- * @version 0.6.3
+ * @date 2025-02-15
+ * @version 0.6.4
  *
  * This implementation file contains the definitions for the SqlGenerator
  * library, including the Token, Lexer, Parser, and SqlGenerator classes. The
@@ -252,13 +252,6 @@ string ASTNode::generateSql(const ParamList &params) const
     return result;
 }
 
-void ASTNode::print(const string &indent) const
-{
-    cout << indent << "\033[31m"
-         << "[Not implemented]"
-         << "\033[0m" << endl;
-}
-
 ParamItem VariableNode::getValue(const ParamList &params) const
 {
     if (params.count(name_) == 0)
@@ -470,6 +463,427 @@ ParamItem IfStmtNode::getValue(const ParamList &params) const
     return nullopt;
 }
 
+ParamItem ForLoopNode::getValue(const ParamList &params) const
+{
+    auto newParams = params;
+    auto collection = collection_->getValue(params);
+    auto collectionJson =
+        collection ? get<Json::Value>(*collection) : Json::Value{};
+    auto separator = separator_ ? separator_->getValue(params) : nullopt;
+    auto separatorStr = separator ? std::get<std::string>(*separator) : "";
+
+    auto setParamAndIndex = [this](ParamList &newParams,
+                                   const Json::Value &collectionJson,
+                                   const auto &index) {
+        const auto &valueJson = collectionJson[index];
+        if (valueJson.isInt())
+        {
+            newParams.erase(valueName_);
+            newParams.emplace(valueName_, valueJson.asInt());
+        }
+        else if (valueJson.isString())
+        {
+            newParams.erase(valueName_);
+            newParams.emplace(valueName_, valueJson.asString());
+        }
+        else
+        {
+            newParams.erase(valueName_);
+            newParams.emplace(valueName_, valueJson);
+        }
+        if (!indexName_.empty())
+        {
+            newParams.erase(indexName_);
+            newParams.emplace(indexName_, index);
+        }
+    };
+    std::string result;
+    auto appendResult =
+        [this, &result, &separatorStr](const ParamList &params,
+                                       const Json::Value &collectionJson,
+                                       const int i) {
+            result += loopBody_->generateSql(params);
+            if (static_cast<size_t>(i) + 1 != collectionJson.size())
+            {
+                result += separatorStr;
+            }
+        };
+    if (collectionJson.isArray())
+    {
+        for (int i = 0; static_cast<size_t>(i) < collectionJson.size(); ++i)
+        {
+            setParamAndIndex(newParams, collectionJson, i);
+            appendResult(newParams, collectionJson, i);
+        }
+    }
+    else if (collectionJson.isObject())
+    {
+        auto memberNames = collectionJson.getMemberNames();
+        for (int i = 0; static_cast<size_t>(i) < memberNames.size(); ++i)
+        {
+            setParamAndIndex(newParams, collectionJson, memberNames[i]);
+            appendResult(newParams, collectionJson, i);
+        }
+    }
+    return result;
+}
+
+void ASTNode::print(vector<int> &indentFlags, bool isFirstLevel) const
+{
+    if (isFirstLevel)
+    {
+        indentFlags.back() = !!nextSibling_;
+    }
+    printIndent(indentFlags);
+    printInner(indentFlags);
+    if (nextSibling_)
+    {
+        nextSibling_->print(indentFlags, true);
+    }
+}
+
+void ASTNode::printIndent(vector<int> &indentFlags) const
+{
+    for (int i = 0; i < indentFlags.size(); ++i)
+    {
+        const auto &flag = indentFlags[i];
+        if (flag == 0)
+        {
+            if (i + 1 == indentFlags.size())
+            {
+                cout << "└── ";
+            }
+            else
+            {
+                cout << "    ";
+            }
+        }
+        else if (flag == 1)
+        {
+            if (i + 1 == indentFlags.size())
+            {
+                cout << "├── ";
+            }
+            else
+            {
+                cout << "│   ";
+            }
+        }
+    }
+}
+
+void NormalTextNode::printInner(vector<int> indentFlags) const
+{
+    cout << "\033[38;5;46m"
+            "["
+         << nodeName()
+         << "]"
+            "\033[0m"
+            "(value: "
+            "\033[38;5;46m"
+            "\""
+         << text_
+         << "\""
+            "\033[0m"
+            ")"
+         << endl;
+}
+
+void NumberNode::printInner(vector<int> indentFlags) const
+{
+    cout << "\033[38;5;202m"
+            "["
+         << nodeName()
+         << "]"
+            "\033[0m"
+            "(value: "
+            "\033[38;5;202m"
+         << value_
+         << "\033[0m"
+            ")"
+         << endl;
+}
+
+void StringNode::printInner(vector<int> indentFlags) const
+{
+    cout << "\033[38;5;46m"
+            "["
+         << nodeName()
+         << "]"
+            "\033[0m"
+            "(value: "
+            "\033[38;5;46m"
+            "\""
+         << value_
+         << "\""
+            "\033[0m"
+            ")"
+         << endl;
+}
+
+void NullNode::printInner(vector<int> indentFlags) const
+{
+    cout << "\033[38;5;196m"
+            "["
+         << nodeName()
+         << "]"
+            "\033[0m"
+         << endl;
+}
+
+void VariableNode::printInner(vector<int> indentFlags) const
+{
+    cout << "\033[38;5;105m"
+            "["
+         << nodeName()
+         << "]"
+            "\033[0m"
+            "(name: "
+            "\033[38;5;105m"
+         << name_
+         << "\033[0m"
+            ")"
+         << endl;
+}
+
+void BinaryOpNode::printInner(vector<int> indentFlags) const
+{
+    cout << "\033[38;5;202m"
+            "["
+         << nodeName()
+         << "]"
+            "\033[0m"
+         << endl;
+
+    indentFlags.emplace_back(1);
+    left_->print(indentFlags);
+
+    indentFlags.back() = 0;
+    right_->print(indentFlags);
+}
+
+void SubSqlNode::printInner(vector<int> indentFlags) const
+{
+    cout << "\033[38;5;226m"
+            "["
+         << nodeName()
+         << "]"
+            "\033[0m"
+            "(name: "
+            "\033[38;5;226m"
+         << name_
+         << "\033[0m"
+            ")"
+         << endl;
+
+    if (params_.size() > 0)
+    {
+        indentFlags.emplace_back(0);
+        printIndent(indentFlags);
+        cout << "\033[38;5;208m"
+                "[Parameters]"
+                "\033[0m"
+             << endl;
+
+        indentFlags.emplace_back(1);  // 此值会被覆盖，随意设置
+        size_t i = 0;
+        for (const auto &pair : params_)
+        {
+            indentFlags.back() = i + 1 < params_.size();
+            printIndent(indentFlags);
+            cout << "\033[38;5;201m"
+                    "["
+                 << pair.first
+                 << "]"
+                    "\033[0m"
+                 << endl;
+
+            indentFlags.emplace_back(0);
+            pair.second->print(indentFlags);
+
+            ++i;
+            indentFlags.resize(indentFlags.size() - 1);
+        }
+    }
+}
+
+void NotNode::printInner(vector<int> indentFlags) const
+{
+    cout << "\033[38;5;202m"
+            "["
+         << nodeName()
+         << "]"
+            "\033[0m"
+         << endl;
+    indentFlags.emplace_back(1);
+    left_->print(indentFlags);
+}
+
+void IfStmtNode::printInner(vector<int> indentFlags) const
+{
+    // [IfStatementNode]
+    cout << "\033[38;5;224m"
+            "["
+         << nodeName()
+         << "]"
+            "\033[0m"
+         << endl;
+
+    // [if_condition]
+    indentFlags.emplace_back(1);
+    printIndent(indentFlags);
+    cout << "\033[38;5;121m"
+            "[if_condition]"
+            "\033[0m"
+         << endl;
+    indentFlags.emplace_back(0);
+    condition_->print(indentFlags);
+
+    // [if_statement]
+    indentFlags.resize(indentFlags.size() - 1);
+    printIndent(indentFlags);
+    cout << "\033[38;5;203m"
+            "[if_statement]"
+            "\033[0m"
+         << endl;
+    indentFlags.emplace_back(0);
+    ifStmt_->print(indentFlags, true);
+
+    indentFlags.resize(indentFlags.size() - 1);
+    size_t i = 0;
+    for (const auto &pair : elIfStmts_)
+    {
+        // [else_if_condition]
+        printIndent(indentFlags);
+        cout << "\033[38;5;121m"
+                "[else_if_condition]"
+                "\033[0m"
+             << endl;
+        indentFlags.emplace_back(elseStmt_ && i + 1 < elIfStmts_.size());
+        pair.first->print(indentFlags);
+
+        // [else_if_statement]
+        indentFlags.resize(indentFlags.size() - 1);
+        printIndent(indentFlags);
+        cout << "\033[38;5;203m"
+                "[else_if_statement]"
+                "\033[0m"
+             << endl;
+        indentFlags.emplace_back(elseStmt_ && i + 1 < elIfStmts_.size());
+        pair.second->print(indentFlags, true);
+
+        ++i;
+        indentFlags.resize(indentFlags.size() - 1);
+    }
+    // [else_statement]
+    if (elseStmt_)
+    {
+        indentFlags.resize(indentFlags.size() - 1);
+        indentFlags.emplace_back(0);
+        printIndent(indentFlags);
+        cout << "\033[38;5;203m"
+                "[else_statement]"
+                "\033[0m"
+             << endl;
+        indentFlags.emplace_back(0);
+        elseStmt_->print(indentFlags, true);
+    }
+}
+
+void ForLoopNode::printInner(vector<int> indentFlags) const
+{
+    // [ForLoopNode]
+    cout << "\033[38;5;218m"
+            "["
+         << nodeName()
+         << "]"
+            "\033[0m"
+         << endl;
+
+    // [parameters]
+    indentFlags.emplace_back(1);
+    printIndent(indentFlags);
+    cout << "\033[38;5;123m"
+            "[parameters]"
+            "\033[0m"
+         << endl;
+
+    // [variable_declaration]
+    indentFlags.emplace_back(1);
+    printIndent(indentFlags);
+    cout << "\033[38;5;34m"
+            "[variable_declaration]"
+            "\033[0m"
+         << endl;
+
+    // [item]
+    indentFlags.emplace_back(indexName_.empty() ? 0 : 1);
+    printIndent(indentFlags);
+    cout << "\033[38;5;155m"
+            "[item]"
+            "\033[0m"
+            "(name: "
+            "\033[38;5;155m"
+         << valueName_
+         << "\033[0m"
+            ")"
+         << endl;
+
+    // [index]
+    if (!indexName_.empty())
+    {
+        indentFlags.back() = 0;
+        printIndent(indentFlags);
+        cout << "\033[38;5;155m"
+                "[index]"
+                "\033[0m"
+                "(name: "
+                "\033[38;5;155m"
+             << indexName_
+             << "\033[0m"
+                ")"
+             << endl;
+    }
+
+    // [collection]
+    indentFlags.resize(indentFlags.size() - 1);
+    indentFlags.back() = separator_ ? 1 : 0;
+    printIndent(indentFlags);
+    cout << "\033[38;5;34m"
+            "[collection]"
+            "\033[0m"
+         << endl;
+    indentFlags.emplace_back(0);
+    collection_->print(indentFlags);
+
+    // [separator]
+    if (separator_)
+    {
+        indentFlags.resize(indentFlags.size() - 1);
+        indentFlags.back() = 0;
+        printIndent(indentFlags);
+        cout << "\033[38;5;34m"
+                "[separator]"
+                "\033[0m"
+             << endl;
+
+        indentFlags.emplace_back(0);
+        separator_->print(indentFlags);
+    }
+
+    // [loop_body]
+    indentFlags.resize(indentFlags.size() - 2);
+    indentFlags.back() = 0;
+    printIndent(indentFlags);
+    cout << "\033[38;5;123m"
+            "[loop_body]"
+            "\033[0m"
+         << endl;
+
+    indentFlags.emplace_back(0);
+    loopBody_->print(indentFlags, true);
+}
+
 void Parser::printTokens()
 {
     reset();
@@ -560,7 +974,8 @@ void Parser::printAST()
     cout << "\033[37m"
          << "[root]"
          << "\033[0m" << endl;
-    root_->print("└── ");
+    vector<int> indentFlags{1};
+    root_->print(indentFlags, true);
 }
 
 string Parser::parse()
